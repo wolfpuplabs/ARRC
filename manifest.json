@@ -1,0 +1,16 @@
+{
+  "name": "KART CRASH · AR Kart Battle",
+  "short_name": "KART CRASH",
+  "description": "Markerless AR kart battle by Wolfpup Labs. Drive a Pup kart in your room, solo vs bots or P2P multiplayer.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0d12",
+  "theme_color": "#0b0d12",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
