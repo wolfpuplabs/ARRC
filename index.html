@@ -710,8 +710,8 @@ let speed=0,heading=0,steerInput=0,throttleInput=0,boost=1,drifting=false;
 const MAX_SPEED=0.6,MAX_REV=0.4,ACCEL=2.2,STEER_MAX=0.55,TURN_RATE=2.6,WHEEL_R=0.022,CAR_R=0.09;
 /* jump / ramp physics */
 let carY=0, vy=0, airborne=false, onRamp=false, carPitch=0, lastRampAng=0.5, flameTick=0;
-const GRAV=2.6, RAMP_LAUNCH=1.1;
-const ramps=[];
+const GRAV=2.6, RAMP_LAUNCH=0.8;
+const ramps=[], flashes=[];
 
 // health / combat
 let ownHP=100, dead=false, lastHitT=0, lastDmgT=0, lastSparkT=0;
@@ -1392,7 +1392,7 @@ function spawnObstacles(){
 function spawnRamps(){
   clearRamps();
   const make=(cx,cz,dir,ang)=>{
-    const Lh=0.42, W=0.34, slope=Lh/Math.cos(ang), h=Lh*Math.tan(ang);
+    const Lh=0.24, W=0.34, slope=Lh/Math.cos(ang), h=Lh*Math.tan(ang);
     const g=new THREE.Group();
     const plank=new THREE.Mesh(new THREE.BoxGeometry(W,0.014,slope),
       new THREE.MeshStandardMaterial({color:0xf2a93b,roughness:.5,metalness:.2,emissive:0x3a1e00}));
@@ -1409,7 +1409,7 @@ function spawnRamps(){
   };
   const n = gameMode==='freeroam' ? 1 : 1 + (rng()<0.5?1:0);
   for(let i=0;i<n;i++){ const a=rng()*Math.PI*2, r=0.18+rng()*(ARENA_RADIUS*0.5);
-    make(Math.cos(a)*r, Math.sin(a)*r, rng()*Math.PI*2, 0.42+rng()*0.12); }
+    make(Math.cos(a)*r, Math.sin(a)*r, rng()*Math.PI*2, 0.28+rng()*0.06); }
 }
 function groundHeightAt(x,z){
   let best=0, ang=0;
@@ -1424,6 +1424,7 @@ function groundHeightAt(x,z){
   return {h:best, ang};
 }
 function explodeBarrel(o,atSpeed){
+  spawnFlash(o.position);
   spawnBurst(o.position,0xff6a1a,26,2.0); spawnBurst(o.position,0xffd24a,16,1.3); spawnSmoke(o.position,12,1.7);
   try{ sfxCrash(Math.min(1.3,0.7+Math.abs(atSpeed))); }catch(e){}
   for(const b of bots){ if(b.eliminated||!b.group) continue;
@@ -1436,6 +1437,7 @@ function clearRamps(){ ramps.forEach(r=>scene.remove(r.group)); ramps.length=0; 
 function clearMarks(){marks.forEach(m=>scene.remove(m));marks.length=0;}
 function clearPowerups(){ powerups.forEach(p=>{ if(p.timer)clearTimeout(p.timer); scene.remove(p.mesh); }); powerups.length=0; }
 function clearWorld(){ if(arenaRing){scene.remove(arenaRing);arenaRing=null;} clearObstacles(); clearRamps(); clearMarks(); clearPowerups();
+  for(const f of flashes) scene.remove(f.mesh); flashes.length=0;
   if(shieldMesh) shieldMesh.visible=false; clearBots();
   if(arenaModel){ scene.remove(arenaModel); arenaModel=null; }
   for(const id in remoteCars) removeRemote(id); }
@@ -1727,6 +1729,17 @@ function updateParticles(dt){
       p.mesh.material.opacity=t; p.mesh.scale.setScalar(0.4+t*0.9); }
   }
 }
+function spawnFlash(pos){
+  const geo=new THREE.RingGeometry(0.02,0.05,24).rotateX(-Math.PI/2);
+  const mat=new THREE.MeshBasicMaterial({color:0xffb24a,transparent:true,opacity:.9,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+  const m=new THREE.Mesh(geo,mat); m.position.copy(pos); m.position.y=arenaCenter.y+0.02; m.renderOrder=10; scene.add(m);
+  flashes.push({mesh:m,life:0.38,maxLife:0.38});
+}
+function updateFlashes(dt){
+  for(let i=flashes.length-1;i>=0;i--){ const f=flashes[i]; f.life-=dt;
+    if(f.life<=0){ scene.remove(f.mesh); f.mesh.geometry.dispose(); f.mesh.material.dispose(); flashes.splice(i,1); continue; }
+    const t=f.life/f.maxLife, s=1+(1-t)*7; f.mesh.scale.set(s,s,s); f.mesh.material.opacity=t*0.9; }
+}
 function spark(x,z,color){
   const now=performance.now(); if(now-lastSparkT<110) return; lastSparkT=now;
   spawnBurst(new THREE.Vector3(x,arenaCenter.y+0.04,z),color,12,1);
@@ -1855,7 +1868,7 @@ function render(t,frame){
   if(bots.length&&carPlaced) updateBots(dt);
   if(isMP&&calib) updateRemotes(dt);
   if(inMatch()&&carPlaced) updateMatch();
-  updateParticles(dt);
+  updateParticles(dt); updateFlashes(dt);
   renderer.render(scene,camera);
 }
 
@@ -1907,7 +1920,11 @@ function driveCar(dt){
       if(o.userData.kind==='barrel' && Math.abs(speed)>0.14){
         if(!SERVER_URL && !shielded()) localDamage(18+Math.abs(speed)*30);   // tong langsung ilang -> selalu ngurangin HP sekali
         lastObsHitT=performance.now();
-        speed*=-0.6; explodeBarrel(o,speed); break;
+        const blast=0.10+Math.abs(speed)*0.18;
+        car.position.x+=nx*blast; car.position.z+=nz*blast;   // mental ke belakang
+        if(!airborne){ airborne=true; vy=0.30; }              // ke-pental naik dikit
+        speed*=-0.55;
+        explodeBarrel(o,speed); break;
       }
       if(Math.abs(speed)>0.1) spark((car.position.x+o.position.x)/2,(car.position.z+o.position.z)/2,0xffae42);
       if(Math.abs(speed)>0.25){ sfxCrash(Math.abs(speed)*0.45); spawnSmoke(o.position,5,1); }
