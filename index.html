@@ -873,16 +873,16 @@ arenaRange.addEventListener('input',()=>{ ARENA_RADIUS=+arenaRange.value; reflec
 [...shapeSeg.children].forEach(b=>b.addEventListener('click',()=>{ arenaShape=b.dataset.shape; reflectArena(); }));
 
 /* ---------- arena presets (GLB) pick like a Pup ---------- */
-let arenaPresetUrl=null, arenaNoObstacles=false, selectedArena='none';
+let arenaPresetUrl=null, arenaNoObstacles=false, selectedArena='none', arenaCollide=false;
 const ARENAS=[
   {id:'none', name:'Default', emoji:'⬜', sw:'linear-gradient(135deg,#3a3f4a,#1b1e25)'},
-  {id:'pup',  name:'Pup', emoji:'🐶', glb:'arena-pup.glb', shape:'square', r:1.8, noObs:true, sw:'linear-gradient(135deg,#7bdc8b,#1f5b2a)'},
+  {id:'pup',  name:'Pup', emoji:'🐶', glb:'arena-pup.glb', shape:'square', r:1.8, noObs:true, collide:true, sw:'linear-gradient(135deg,#7bdc8b,#1f5b2a)'},
 ];
 const arenasel=$('arenasel');
 function applyArena(a){
   selectedArena=a.id;
-  if(a.id==='none'){ arenaPresetUrl=null; arenaNoObstacles=false; }
-  else { arenaPresetUrl=a.glb; arenaNoObstacles=!!a.noObs; if(a.shape) arenaShape=a.shape; if(a.r) ARENA_RADIUS=a.r;
+  if(a.id==='none'){ arenaPresetUrl=null; arenaNoObstacles=false; arenaCollide=false; }
+  else { arenaPresetUrl=a.glb; arenaNoObstacles=!!a.noObs; arenaCollide=!!a.collide; if(a.shape) arenaShape=a.shape; if(a.r) ARENA_RADIUS=a.r;
     arenaGlbData=null; if(arenaModel){scene.remove(arenaModel);arenaModel=null;} }   // preset override upload manual
   reflectArena();
 }
@@ -962,7 +962,7 @@ reflectArena();
 /* ---------- custom arena GLB (visual scenery, local only) ---------- */
 let arenaGlbData=null, arenaModel=null;
 $('arenaglb').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return;
-  arenaPresetUrl=null; arenaNoObstacles=false; selectedArena='none';
+  arenaPresetUrl=null; arenaNoObstacles=false; arenaCollide=false; selectedArena='none';
   if(typeof arenasel!=='undefined'&&arenasel){ [...arenasel.children].forEach((x,i)=>x.classList.toggle('on',i===0)); }
   const r=new FileReader(); r.onload=()=>{ arenaGlbData=r.result; arenaSt.textContent='Arena model ready: '+f.name+' (scenery only, local).'; }; r.readAsArrayBuffer(f); });
 $('arenaglbClear').addEventListener('click',()=>{ arenaGlbData=null; if(arenaModel){scene.remove(arenaModel);arenaModel=null;} reflectArena(); });
@@ -1510,6 +1510,19 @@ function groundHeightAt(x,z){
     }
   }
   return {h:best, ang};
+}
+/* mesh collider arena GLB: 8 sinar horizontal dari mobil, dorong keluar kalau nembus dinding/rintangan model */
+const _ray=new THREE.Raycaster(), _corigin=new THREE.Vector3(), _cdirs=[];
+for(let i=0;i<8;i++){ const a=i/8*Math.PI*2; _cdirs.push(new THREE.Vector3(Math.cos(a),0,Math.sin(a))); }
+function collideArenaMesh(){
+  if(!arenaCollide || !arenaModel || Math.abs(speed)<0.003) return;
+  const oy=arenaCenter.y+0.03; let hit=false;
+  for(const d of _cdirs){
+    _corigin.set(car.position.x,oy,car.position.z); _ray.set(_corigin,d); _ray.far=CAR_R+0.02;
+    const r=_ray.intersectObject(arenaModel,true);
+    if(r.length && r[0].distance<CAR_R){ const push=CAR_R-r[0].distance; car.position.x-=d.x*push; car.position.z-=d.z*push; hit=true; }
+  }
+  if(hit) speed*=0.5;
 }
 function explodeBarrel(o,atSpeed){
   spawnFlash(o.position);
@@ -2148,6 +2161,7 @@ function driveCar(dt){
       }
     }
   }
+  collideArenaMesh();
   car.rotation.set(carPitch, heading, 0);
   flameTick++; if((flameTick&1)===0){ for(const o of obstacles){ const f=o.userData.flame; if(f){ f.scale.y=0.75+Math.random()*0.55; f.material.opacity=0.7+Math.random()*0.3; } } }
   if(!airborne && Math.abs(speed)>0.12 && (flameTick%3===0))   // debu dari ban pas jalan
