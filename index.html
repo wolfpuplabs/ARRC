@@ -547,7 +547,7 @@
         <input id="arenaglb" type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" hidden />
         <button id="arenaglbClear">Clear</button>
       </div>
-      <div class="st" id="arenaSt">Slide to resize. Builder: place cones & save an arena code to share.</div>
+      <div class="st" id="arenaSt">Slide to resize. Builder: place bumpers & save an arena code to share.</div>
     </div>
     <div class="mpsub" id="carWrap">
       <div class="sublbl">Select car</div>
@@ -587,7 +587,7 @@
 
 <div class="builder" id="builder">
   <h2>Arena Builder</h2>
-  <div class="hintline">Tap canvas = add cone · tap cone = delete · drag cone = move. Save the code to share it.</div>
+  <div class="hintline">Tap canvas = add bumper · tap = delete · drag = move. Save the code to share it.</div>
   <canvas id="bcanvas"></canvas>
   <div class="brow">
     <button id="bClear">Clear</button>
@@ -708,6 +708,10 @@ const clock=new THREE.Clock();
 
 let speed=0,heading=0,steerInput=0,throttleInput=0,boost=1,drifting=false;
 const MAX_SPEED=0.6,MAX_REV=0.4,ACCEL=2.2,STEER_MAX=0.55,TURN_RATE=2.6,WHEEL_R=0.022,CAR_R=0.09;
+/* jump / ramp physics */
+let carY=0, vy=0, airborne=false, onRamp=false, carPitch=0, lastRampAng=0.5, flameTick=0;
+const GRAV=2.6, RAMP_LAUNCH=1.1;
+const ramps=[];
 
 // health / combat
 let ownHP=100, dead=false, lastHitT=0, lastDmgT=0, lastSparkT=0;
@@ -830,8 +834,8 @@ function reflectArena(){
   arenaRange.value=ARENA_RADIUS;
   arenaVal.textContent='Ø '+(ARENA_RADIUS*2).toFixed(1)+' m';
   [...shapeSeg.children].forEach(b=>b.classList.toggle('on',b.dataset.shape===arenaShape));
-  arenaSt.textContent = customCones&&customCones.length ? ('Arena custom · '+customCones.length+' cones · Ø '+(ARENA_RADIUS*2).toFixed(1)+' m')
-    : 'Slide to resize. Builder: place cones & save an arena code to share.';
+  arenaSt.textContent = customCones&&customCones.length ? ('Arena custom · '+customCones.length+' bumpers · Ø '+(ARENA_RADIUS*2).toFixed(1)+' m')
+    : 'Slide to resize. Builder: place bumpers & save an arena code to share.';
 }
 arenaRange.addEventListener('input',()=>{ ARENA_RADIUS=+arenaRange.value; reflectArena(); });
 [...shapeSeg.children].forEach(b=>b.addEventListener('click',()=>{ arenaShape=b.dataset.shape; reflectArena(); }));
@@ -1308,7 +1312,7 @@ async function placeCar(refMatrixObj){
 async function startDriving(){
   if(building) return;
   if(!car){ building=true; car=await buildCar(myCarColor); frontWheels=car.userData.front||[]; allWheels=car.userData.all||[]; scene.add(car); building=false; }
-  car.position.copy(arenaCenter); heading=0; speed=0; car.rotation.y=0; car.visible=true; carPlaced=true;
+  car.position.copy(arenaCenter); heading=0; speed=0; car.rotation.order='YXZ'; car.rotation.set(0,0,0); car.visible=true; carPlaced=true; carY=0;vy=0;airborne=false;onRamp=false;carPitch=0;
   if(shadowGround){ shadowGround.position.set(arenaCenter.x,arenaCenter.y+0.001,arenaCenter.z); shadowGround.visible=true; }
   if(keyLight){ keyLight.position.set(arenaCenter.x+0.6,arenaCenter.y+1.4,arenaCenter.z+0.5); keyLight.target.position.copy(arenaCenter); keyLight.target.updateMatrixWorld(); }
   ownHP=100; dead=false; eliminated=false; myScore=0; nitro=100; shieldUntil=0; updateHpBar(); updateNitroBar();
@@ -1348,22 +1352,90 @@ function buildArena(){
   }
   arenaRing.position.copy(arenaCenter); arenaRing.position.y+=0.002; scene.add(arenaRing);
 }
+function makeTire(){
+  const g=new THREE.Group();
+  const t=new THREE.Mesh(new THREE.TorusGeometry(0.05,0.022,10,20).rotateX(Math.PI/2),
+    new THREE.MeshStandardMaterial({color:0x1a1a1d,roughness:.92,metalness:0}));
+  t.castShadow=true; g.add(t);
+  const hub=new THREE.Mesh(new THREE.CylinderGeometry(0.018,0.018,0.046,12),
+    new THREE.MeshStandardMaterial({color:0x6b6f76,roughness:.5,metalness:.4}));
+  hub.rotation.x=Math.PI/2; g.add(hub);
+  g.userData.r=0.06; g.userData.top=0.05; g.userData.kind='tire';
+  return g;
+}
+function makeBarrel(){
+  const g=new THREE.Group();
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,0.11,16),
+    new THREE.MeshStandardMaterial({color:0xb02418,roughness:.45,metalness:.3,emissive:0x350800}));
+  body.castShadow=true; g.add(body);
+  const bandMat=new THREE.MeshStandardMaterial({color:0x141414,roughness:.6});
+  for(const y of [-0.032,0.032]){ const b=new THREE.Mesh(new THREE.CylinderGeometry(0.047,0.047,0.009,16),bandMat); b.position.y=y; g.add(b); }
+  const flame=new THREE.Mesh(new THREE.ConeGeometry(0.023,0.05,10),
+    new THREE.MeshBasicMaterial({color:0xff8a1e,transparent:true,opacity:.92,blending:THREE.AdditiveBlending,depthWrite:false}));
+  flame.position.y=0.085; flame.renderOrder=9; g.add(flame); g.userData.flame=flame;
+  g.userData.r=0.05; g.userData.top=0.14; g.userData.kind='barrel';
+  return g;
+}
 function spawnObstacles(){
   clearObstacles();
-  if(gameMode==='freeroam') return;            // free roam: tanpa cone
-  const coneGeo=new THREE.ConeGeometry(0.045,0.09,18);
-  const coneMat=new THREE.MeshStandardMaterial({color:0xffa033,roughness:.5,emissive:0x3a1e00});
-  const place=(sx,sz)=>{ const o=new THREE.Mesh(coneGeo,coneMat);
-    if(calib){ const lp=sharedToLocal(sx,sz); o.position.set(lp.x,arenaCenter.y+0.045,lp.z); }
-    else o.position.set(arenaCenter.x+sx,arenaCenter.y+0.045,arenaCenter.z+sz);
-    o.userData.r=0.05; o.castShadow=true; scene.add(o); obstacles.push(o); };
-  if(customCones && customCones.length){ for(const c of customCones) place(c.x,c.z); }
-  else { for(let i=0;i<N_OBSTACLES;i++){ const a=rng()*Math.PI*2, r=0.4+rng()*(ARENA_RADIUS-0.55); place(Math.cos(a)*r,Math.sin(a)*r); } }
+  if(gameMode==='freeroam'){ spawnRamps(); return; }       // free roam: cuma ramp
+  const place=(sx,sz,kind)=>{ const o = kind==='barrel'?makeBarrel():makeTire();
+    const baseY = kind==='barrel'?0.055:0.022;
+    if(calib){ const lp=sharedToLocal(sx,sz); o.position.set(lp.x,arenaCenter.y+baseY,lp.z); }
+    else o.position.set(arenaCenter.x+sx,arenaCenter.y+baseY,arenaCenter.z+sz);
+    scene.add(o); obstacles.push(o); };
+  if(customCones && customCones.length){ for(const c of customCones) place(c.x,c.z,'tire'); }
+  else { for(let i=0;i<N_OBSTACLES;i++){ const a=rng()*Math.PI*2, r=0.4+rng()*(ARENA_RADIUS-0.55);
+      place(Math.cos(a)*r,Math.sin(a)*r, rng()<0.45?'barrel':'tire'); } }
+  spawnRamps();
+}
+function spawnRamps(){
+  clearRamps();
+  const make=(cx,cz,dir,ang)=>{
+    const Lh=0.42, W=0.34, slope=Lh/Math.cos(ang), h=Lh*Math.tan(ang);
+    const g=new THREE.Group();
+    const plank=new THREE.Mesh(new THREE.BoxGeometry(W,0.014,slope),
+      new THREE.MeshStandardMaterial({color:0xf2a93b,roughness:.5,metalness:.2,emissive:0x3a1e00}));
+    plank.castShadow=true; plank.receiveShadow=true;
+    plank.rotation.x=-ang; plank.position.y=h/2; g.add(plank);
+    // edge stripes (kuning-hitam) di sisi tanjakan
+    const stripe=new THREE.Mesh(new THREE.BoxGeometry(0.015,0.016,slope),
+      new THREE.MeshStandardMaterial({color:0x111111,roughness:.7}));
+    stripe.rotation.x=-ang; stripe.position.set(W/2-0.012,h/2,0); g.add(stripe);
+    const stripe2=stripe.clone(); stripe2.position.x=-(W/2-0.012); g.add(stripe2);
+    g.position.set(arenaCenter.x+cx, arenaCenter.y+0.001, arenaCenter.z+cz);
+    g.rotation.y=dir; scene.add(g);
+    ramps.push({group:g, cx:arenaCenter.x+cx, cz:arenaCenter.z+cz, dir, ang, Lh, W, h});
+  };
+  const n = gameMode==='freeroam' ? 1 : 1 + (rng()<0.5?1:0);
+  for(let i=0;i<n;i++){ const a=rng()*Math.PI*2, r=0.18+rng()*(ARENA_RADIUS*0.5);
+    make(Math.cos(a)*r, Math.sin(a)*r, rng()*Math.PI*2, 0.42+rng()*0.12); }
+}
+function groundHeightAt(x,z){
+  let best=0, ang=0;
+  for(const rp of ramps){
+    const dx=x-rp.cx, dz=z-rp.cz;
+    const lx = dx*Math.cos(rp.dir) - dz*Math.sin(rp.dir);
+    const lz = dx*Math.sin(rp.dir) + dz*Math.cos(rp.dir);
+    if(Math.abs(lx)<=rp.W/2 && lz>=-rp.Lh/2 && lz<=rp.Lh/2){
+      const hh=(lz+rp.Lh/2)/rp.Lh*rp.h; if(hh>best){ best=hh; ang=rp.ang; }
+    }
+  }
+  return {h:best, ang};
+}
+function explodeBarrel(o,atSpeed){
+  spawnBurst(o.position,0xff6a1a,26,2.0); spawnBurst(o.position,0xffd24a,16,1.3); spawnSmoke(o.position,12,1.7);
+  try{ sfxCrash(Math.min(1.3,0.7+Math.abs(atSpeed))); }catch(e){}
+  for(const b of bots){ if(b.eliminated||!b.group) continue;
+    const d=Math.hypot(b.x-o.position.x,b.z-o.position.z);
+    if(d<0.4){ damageBot(b,22); const nx=(b.x-o.position.x)/(d||1),nz=(b.z-o.position.z)/(d||1); b.x+=nx*0.12; b.z+=nz*0.12; } }
+  scene.remove(o); const idx=obstacles.indexOf(o); if(idx>=0) obstacles.splice(idx,1);
 }
 function clearObstacles(){obstacles.forEach(o=>scene.remove(o));obstacles.length=0;}
+function clearRamps(){ ramps.forEach(r=>scene.remove(r.group)); ramps.length=0; }
 function clearMarks(){marks.forEach(m=>scene.remove(m));marks.length=0;}
 function clearPowerups(){ powerups.forEach(p=>{ if(p.timer)clearTimeout(p.timer); scene.remove(p.mesh); }); powerups.length=0; }
-function clearWorld(){ if(arenaRing){scene.remove(arenaRing);arenaRing=null;} clearObstacles(); clearMarks(); clearPowerups();
+function clearWorld(){ if(arenaRing){scene.remove(arenaRing);arenaRing=null;} clearObstacles(); clearRamps(); clearMarks(); clearPowerups();
   if(shieldMesh) shieldMesh.visible=false; clearBots();
   if(arenaModel){ scene.remove(arenaModel); arenaModel=null; }
   for(const id in remoteCars) removeRemote(id); }
@@ -1464,7 +1536,7 @@ function addUnderGlow(group,color){
 /* ---------- health (server-authoritative; client only displays) ---------- */
 function updateHpBar(){ const h=Math.max(0,Math.round(ownHP)); hpfill.style.height=h+'%'; hptxt.textContent=h; }
 function enterDead(){ dead=true; speed=0; statusT.textContent='Wrecked! Respawning…'; if(car){ spawnBurst(car.position,0xff5a30,26,1.4); car.visible=false; } }
-function exitDead(){ dead=false; if(car){ car.position.copy(arenaCenter); heading=0; car.rotation.y=0; car.visible=true; } speed=0; statusT.textContent='Race'; }
+function exitDead(){ dead=false; if(car){ car.position.copy(arenaCenter); heading=0; car.rotation.set(0,0,0); car.visible=true; } speed=0; carY=0;vy=0;airborne=false;onRamp=false;carPitch=0; statusT.textContent='Race'; }
 // local combat (dipakai di mode P2P gratis; di mode WS damage diatur server)
 function localDamage(amt){
   if(dead||eliminated) return;
@@ -1486,7 +1558,7 @@ function resetRound(){
   eliminated=false; dead=false; ownHP=100; nitro=100; shieldUntil=0; speed=0; throttleInput=0;
   if(car){ const a=Math.random()*Math.PI*2, rr=0.45;          // sebar posisi biar tidak numpuk
     car.position.set(arenaCenter.x+Math.cos(a)*rr, arenaCenter.y, arenaCenter.z+Math.sin(a)*rr);
-    heading=0; car.rotation.y=0; car.visible=true; }
+    heading=0; car.rotation.set(0,0,0); car.visible=true; carY=0;vy=0;airborne=false;onRamp=false;carPitch=0; }
   for(const b of bots){ if(b.timer)clearTimeout(b.timer); b.hp=100; b.eliminated=false; b.speed=0; placeBot(b); botLabelHp(b); if(b.group)b.group.visible=true; }
   updateHpBar(); updateNitroBar(); hideResult(); roundResolving=false; roundPlayers=0;
   statusT.textContent='Race';
@@ -1588,9 +1660,11 @@ function updateBots(dt){
     if(gameMode==='freeroam'){ /* roam bebas */ }
     else if(inMatch() && gameMode==='sumo'){ if(outsideArena(b.x,b.z,0.03)){ botKO(b); continue; } }
     else { const c=clampArena(b.x,b.z,CAR_R); if(c.hit){ b.x=c.x; b.z=c.z; b.heading+=Math.PI*0.6; b.speed*=0.5; } }
-    // obstacles
+    // obstacles (tong api meledak kalau bot nabrak kenceng)
     for(const o of obstacles){ const ox=b.x-o.position.x,oz=b.z-o.position.z,d=Math.hypot(ox,oz),min=CAR_R+o.userData.r;
-      if(d<min&&d>1e-4){ const nx=ox/d,nz=oz/d; b.x=o.position.x+nx*min; b.z=o.position.z+nz*min; b.speed*=0.6; } }
+      if(d<min&&d>1e-4){ const nx=ox/d,nz=oz/d; b.x=o.position.x+nx*min; b.z=o.position.z+nz*min;
+        if(o.userData.kind==='barrel' && Math.abs(b.speed)>0.12){ b.speed*=-0.5; damageBot(b,14); explodeBarrel(o,b.speed); break; }
+        b.speed*=0.6; } }
     // bot-bot: pisah + saling lukai/dorong (biar ronde bisa selesai walau pemain KO)
     for(const o2 of bots){ if(o2===b||o2.eliminated||!o2.group)continue;
       const ox=b.x-o2.x,oz=b.z-o2.z,d=Math.hypot(ox,oz),min=CAR_R*2;
@@ -1810,15 +1884,35 @@ function driveCar(dt){
   else if(inMatch() && gameMode==='sumo'){
     if(!eliminated && outsideArena(car.position.x,car.position.z,0.03)){ spawnBurst(car.position,0xffd24a,20,1.2); handleKO(); return; }
   } else { const c=clampArena(car.position.x,car.position.z,CAR_R); if(c.hit){ car.position.x=c.x; car.position.z=c.z; speed*=-0.35; } }
-  // obstacle collision (+ damage saat kena cone)
+  // ---- vertical physics: ramp + jump (gravity) ----
+  const gnd=groundHeightAt(car.position.x,car.position.z);
+  if(airborne){
+    carY+=vy*dt; vy-=GRAV*dt;
+    const land=Math.max(gnd.h,0);
+    if(carY<=land){ const impact=vy; carY=land; vy=0; airborne=false; onRamp=gnd.h>0.002;
+      if(impact<-0.6){ spawnSmoke(new THREE.Vector3(car.position.x,arenaCenter.y+0.02,car.position.z),5,1); try{sfxCrash(0.3);}catch(e){} } }
+  } else {
+    if(gnd.h>carY+0.004){ carY=gnd.h; onRamp=true; lastRampAng=gnd.ang; }
+    else if(gnd.h<carY-0.004){ airborne=true; vy=Math.abs(speed)*Math.sin(lastRampAng||0.5)*RAMP_LAUNCH+0.05; } // lepas ujung ramp = lompat
+    else { carY=gnd.h; onRamp=gnd.h>0.002; if(onRamp) lastRampAng=gnd.ang; }
+  }
+  car.position.y=arenaCenter.y+carY;
+  let pitchTarget = airborne ? Math.max(-0.5,Math.min(0.55,vy*1.6)) : (onRamp? lastRampAng : 0);
+  carPitch += (pitchTarget-carPitch)*Math.min(1,dt*10);
+  // obstacle collision (ban = bumper, tong api = MELEDAK; lompati kalau lagi terbang di atasnya)
   for(const o of obstacles){
+    if(carY > (o.userData.top||0.12)) continue;                  // jumped over it
     const ox=car.position.x-o.position.x,oz=car.position.z-o.position.z,d=Math.hypot(ox,oz),min=CAR_R+o.userData.r;
     if(d<min&&d>1e-4){const nx=ox/d,nz=oz/d;car.position.x=o.position.x+nx*min;car.position.z=o.position.z+nz*min;
+      if(o.userData.kind==='barrel' && Math.abs(speed)>0.14){
+        if(!SERVER_URL && !shielded()){ const nB=performance.now(); if(nB-lastObsHitT>HIT_COOLDOWN){ lastObsHitT=nB; localDamage(16+Math.abs(speed)*30); } }
+        speed*=-0.6; explodeBarrel(o,speed); break;
+      }
       if(Math.abs(speed)>0.1) spark((car.position.x+o.position.x)/2,(car.position.z+o.position.z)/2,0xffae42);
       if(Math.abs(speed)>0.25){ sfxCrash(Math.abs(speed)*0.45); spawnSmoke(o.position,5,1); }
       const nowO=performance.now();
       if(!SERVER_URL && !shielded() && Math.abs(speed)>0.15 && nowO-lastObsHitT>HIT_COOLDOWN){
-        lastObsHitT=nowO; localDamage(4+Math.abs(speed)*25);
+        lastObsHitT=nowO; localDamage(o.userData.kind==='tire'?2:4+Math.abs(speed)*25);
       }
       speed*=-0.3;}
   }
@@ -1867,7 +1961,8 @@ function driveCar(dt){
       }
     }
   }
-  car.rotation.y=heading;
+  car.rotation.set(carPitch, heading, 0);
+  flameTick++; if((flameTick&1)===0){ for(const o of obstacles){ const f=o.userData.flame; if(f){ f.scale.y=0.75+Math.random()*0.55; f.material.opacity=0.7+Math.random()*0.3; } } }
   const steerAngle=steerInput*STEER_MAX;
   for(const p of frontWheels) p.rotation.y=steerAngle;
   const spin=(speed*dt)/WHEEL_R;
