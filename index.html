@@ -1317,6 +1317,7 @@ async function startDriving(){
   if(keyLight){ keyLight.position.set(arenaCenter.x+0.6,arenaCenter.y+1.4,arenaCenter.z+0.5); keyLight.target.position.copy(arenaCenter); keyLight.target.updateMatrixWorld(); }
   ownHP=100; dead=false; eliminated=false; myScore=0; nitro=100; shieldUntil=0; updateHpBar(); updateNitroBar();
   topctrl.style.display='flex'; sidebars.style.display='flex';     // km/h + FUEL/NITRO tampil
+  await loadObsModels();                                          // GLB tire/barrel/ramp (cached)
   buildArena(); placeArenaModel(); spawnObstacles(); spawnPowerups();
   if(!isMP && botCount>0) await spawnBots();           // bot lawan (solo)
   if(inMatch()){ if(!car.userData.label){ addUnderGlow(car,0xff6b3d); addLabel(car, myName); } resetMatch(); }
@@ -1352,37 +1353,67 @@ function buildArena(){
   }
   arenaRing.position.copy(arenaCenter); arenaRing.position.y+=0.002; scene.add(arenaRing);
 }
+/* ---------- obstacle/ramp 3D models (GLB, cached once, cloned; procedural fallback) ---------- */
+const obsTpl={};
+function deDark(model){ model.traverse(o=>{ if(o.isMesh&&o.material){ const ms=Array.isArray(o.material)?o.material:[o.material];
+  for(const m of ms){ if('metalness' in m) m.metalness=Math.min(m.metalness,0.2); if('roughness' in m) m.roughness=Math.max(0.4,m.roughness); if('envMapIntensity' in m) m.envMapIntensity=0.5; m.needsUpdate=true; } } }); }
+function fitTire(model){ deDark(model); model.rotation.x=Math.PI/2;            // rebah: lubang ke atas
+  let box=new THREE.Box3().setFromObject(model),sz=new THREE.Vector3();box.getSize(sz);
+  model.scale.setScalar(0.13/Math.max(sz.x,sz.z,1e-3));
+  box=new THREE.Box3().setFromObject(model);const c=new THREE.Vector3();box.getCenter(c);
+  model.position.x-=c.x;model.position.z-=c.z;model.position.y-=box.min.y;
+  const g=new THREE.Group();g.add(model);enableShadows(g);
+  box=new THREE.Box3().setFromObject(g);box.getSize(sz);
+  g.userData.r=Math.max(sz.x,sz.z)/2*0.9; g.userData.top=sz.y; g.userData.kind='tire'; return g; }
+function fitBarrel(model){ deDark(model);
+  let box=new THREE.Box3().setFromObject(model),sz=new THREE.Vector3();box.getSize(sz);
+  model.scale.setScalar(0.13/Math.max(sz.y,1e-3));
+  box=new THREE.Box3().setFromObject(model);const c=new THREE.Vector3();box.getCenter(c);
+  model.position.x-=c.x;model.position.z-=c.z;model.position.y-=box.min.y;
+  const g=new THREE.Group();g.add(model);
+  box=new THREE.Box3().setFromObject(g);box.getSize(sz);
+  const flame=new THREE.Mesh(new THREE.ConeGeometry(Math.max(sz.x,sz.z)*0.32,sz.y*0.42,10),
+    new THREE.MeshBasicMaterial({color:0xff8a1e,transparent:true,opacity:.9,blending:THREE.AdditiveBlending,depthWrite:false}));
+  flame.name='__flame'; flame.position.y=sz.y+sz.y*0.14; flame.renderOrder=9; g.add(flame);
+  enableShadows(g);
+  g.userData.r=Math.max(sz.x,sz.z)/2*0.92; g.userData.top=sz.y*1.4; g.userData.kind='barrel'; return g; }
+function fitRamp(model){ deDark(model);
+  let box=new THREE.Box3().setFromObject(model),sz=new THREE.Vector3();box.getSize(sz);
+  model.scale.setScalar(0.34/Math.max(sz.z,1e-3));        // target panjang lintasan ~0.34 m (sumbu Z, tanjakan ke +Z)
+  box=new THREE.Box3().setFromObject(model);const c=new THREE.Vector3();box.getCenter(c);
+  model.position.x-=c.x;model.position.z-=c.z;model.position.y-=box.min.y;
+  const g=new THREE.Group();g.add(model);enableShadows(g);
+  box=new THREE.Box3().setFromObject(g);box.getSize(sz);
+  return {group:g, dims:{Lh:sz.z, W:sz.x, h:sz.y, ang:Math.atan2(sz.y,sz.z)}}; }
+async function loadObsModels(){ if(obsTpl._done) return;
+  const L=new GLTFLoader();
+  try{ const g=await L.loadAsync('obs-tire.glb');   obsTpl.tire=fitTire(g.scene); }catch(e){}
+  try{ const g=await L.loadAsync('obs-barrel.glb'); obsTpl.barrel=fitBarrel(g.scene); }catch(e){}
+  try{ const g=await L.loadAsync('obs-ramp.glb');   const r=fitRamp(g.scene); obsTpl.ramp=r.group; obsTpl.rampDims=r.dims; }catch(e){}
+  obsTpl._done=true; }
+
 function makeTire(){
+  if(obsTpl.tire){ const g=obsTpl.tire.clone(true); g.userData.r=obsTpl.tire.userData.r; g.userData.top=obsTpl.tire.userData.top; g.userData.kind='tire'; return g; }
   const g=new THREE.Group();
-  const t=new THREE.Mesh(new THREE.TorusGeometry(0.05,0.022,10,20).rotateX(Math.PI/2),
-    new THREE.MeshStandardMaterial({color:0x1a1a1d,roughness:.92,metalness:0}));
-  t.castShadow=true; g.add(t);
-  const hub=new THREE.Mesh(new THREE.CylinderGeometry(0.018,0.018,0.046,12),
-    new THREE.MeshStandardMaterial({color:0x6b6f76,roughness:.5,metalness:.4}));
-  hub.rotation.x=Math.PI/2; g.add(hub);
-  g.userData.r=0.06; g.userData.top=0.05; g.userData.kind='tire';
-  return g;
+  const t=new THREE.Mesh(new THREE.TorusGeometry(0.05,0.022,10,20).rotateX(Math.PI/2),new THREE.MeshStandardMaterial({color:0x1a1a1d,roughness:.92,metalness:0}));
+  t.position.y=0.022; t.castShadow=true; g.add(t);
+  g.userData.r=0.06; g.userData.top=0.05; g.userData.kind='tire'; return g;
 }
 function makeBarrel(){
+  if(obsTpl.barrel){ const g=obsTpl.barrel.clone(true); g.userData.r=obsTpl.barrel.userData.r; g.userData.top=obsTpl.barrel.userData.top; g.userData.kind='barrel'; g.userData.flame=g.getObjectByName('__flame'); return g; }
   const g=new THREE.Group();
-  const body=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,0.11,16),
-    new THREE.MeshStandardMaterial({color:0xb02418,roughness:.45,metalness:.3,emissive:0x350800}));
-  body.castShadow=true; g.add(body);
-  const bandMat=new THREE.MeshStandardMaterial({color:0x141414,roughness:.6});
-  for(const y of [-0.032,0.032]){ const b=new THREE.Mesh(new THREE.CylinderGeometry(0.047,0.047,0.009,16),bandMat); b.position.y=y; g.add(b); }
-  const flame=new THREE.Mesh(new THREE.ConeGeometry(0.023,0.05,10),
-    new THREE.MeshBasicMaterial({color:0xff8a1e,transparent:true,opacity:.92,blending:THREE.AdditiveBlending,depthWrite:false}));
-  flame.position.y=0.085; flame.renderOrder=9; g.add(flame); g.userData.flame=flame;
-  g.userData.r=0.05; g.userData.top=0.14; g.userData.kind='barrel';
-  return g;
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,0.11,16),new THREE.MeshStandardMaterial({color:0xb02418,roughness:.45,metalness:.3,emissive:0x350800}));
+  body.position.y=0.055; body.castShadow=true; g.add(body);
+  const flame=new THREE.Mesh(new THREE.ConeGeometry(0.023,0.05,10),new THREE.MeshBasicMaterial({color:0xff8a1e,transparent:true,opacity:.92,blending:THREE.AdditiveBlending,depthWrite:false}));
+  flame.name='__flame'; flame.position.y=0.14; flame.renderOrder=9; g.add(flame); g.userData.flame=flame;
+  g.userData.r=0.05; g.userData.top=0.14; g.userData.kind='barrel'; return g;
 }
 function spawnObstacles(){
   clearObstacles();
   if(gameMode==='freeroam'){ spawnRamps(); return; }       // free roam: cuma ramp
-  const place=(sx,sz,kind)=>{ const o = kind==='barrel'?makeBarrel():makeTire();
-    const baseY = kind==='barrel'?0.055:0.022;
-    if(calib){ const lp=sharedToLocal(sx,sz); o.position.set(lp.x,arenaCenter.y+baseY,lp.z); }
-    else o.position.set(arenaCenter.x+sx,arenaCenter.y+baseY,arenaCenter.z+sz);
+  const place=(sx,sz,kind)=>{ const o = kind==='barrel'?makeBarrel():makeTire();   // base model di y=0
+    if(calib){ const lp=sharedToLocal(sx,sz); o.position.set(lp.x,arenaCenter.y+0.001,lp.z); }
+    else o.position.set(arenaCenter.x+sx,arenaCenter.y+0.001,arenaCenter.z+sz);
     scene.add(o); obstacles.push(o); };
   if(customCones && customCones.length){ for(const c of customCones) place(c.x,c.z,'tire'); }
   else { for(let i=0;i<N_OBSTACLES;i++){ const a=rng()*Math.PI*2, r=0.4+rng()*(ARENA_RADIUS-0.55);
@@ -1391,25 +1422,17 @@ function spawnObstacles(){
 }
 function spawnRamps(){
   clearRamps();
-  const make=(cx,cz,dir,ang)=>{
-    const Lh=0.24, W=0.34, slope=Lh/Math.cos(ang), h=Lh*Math.tan(ang);
-    const g=new THREE.Group();
-    const plank=new THREE.Mesh(new THREE.BoxGeometry(W,0.014,slope),
-      new THREE.MeshStandardMaterial({color:0xf2a93b,roughness:.5,metalness:.2,emissive:0x3a1e00}));
-    plank.castShadow=true; plank.receiveShadow=true;
-    plank.rotation.x=-ang; plank.position.y=h/2; g.add(plank);
-    // edge stripes (kuning-hitam) di sisi tanjakan
-    const stripe=new THREE.Mesh(new THREE.BoxGeometry(0.015,0.016,slope),
-      new THREE.MeshStandardMaterial({color:0x111111,roughness:.7}));
-    stripe.rotation.x=-ang; stripe.position.set(W/2-0.012,h/2,0); g.add(stripe);
-    const stripe2=stripe.clone(); stripe2.position.x=-(W/2-0.012); g.add(stripe2);
-    g.position.set(arenaCenter.x+cx, arenaCenter.y+0.001, arenaCenter.z+cz);
-    g.rotation.y=dir; scene.add(g);
-    ramps.push({group:g, cx:arenaCenter.x+cx, cz:arenaCenter.z+cz, dir, ang, Lh, W, h});
+  const make=(cx,cz,dir)=>{
+    let g, dims;
+    if(obsTpl.ramp){ g=obsTpl.ramp.clone(true); dims=obsTpl.rampDims; }
+    else { const ang=0.3, Lh=0.24, W=0.34, slope=Lh/Math.cos(ang), h=Lh*Math.tan(ang); g=new THREE.Group();
+      const plank=new THREE.Mesh(new THREE.BoxGeometry(W,0.014,slope),new THREE.MeshStandardMaterial({color:0xf2a93b,roughness:.5,metalness:.2,emissive:0x3a1e00}));
+      plank.castShadow=true; plank.rotation.x=-ang; plank.position.y=h/2; g.add(plank); dims={Lh,W,h,ang}; }
+    g.position.set(arenaCenter.x+cx, arenaCenter.y+0.001, arenaCenter.z+cz); g.rotation.y=dir; scene.add(g);
+    ramps.push({group:g, cx:arenaCenter.x+cx, cz:arenaCenter.z+cz, dir, ang:dims.ang, Lh:dims.Lh, W:dims.W, h:dims.h});
   };
-  const n = gameMode==='freeroam' ? 1 : 1 + (rng()<0.5?1:0);
-  for(let i=0;i<n;i++){ const a=rng()*Math.PI*2, r=0.18+rng()*(ARENA_RADIUS*0.5);
-    make(Math.cos(a)*r, Math.sin(a)*r, rng()*Math.PI*2, 0.28+rng()*0.06); }
+  const n = gameMode==='freeroam'?1:1+(rng()<0.5?1:0);
+  for(let i=0;i<n;i++){ const a=rng()*Math.PI*2, r=0.18+rng()*(ARENA_RADIUS*0.5); make(Math.cos(a)*r,Math.sin(a)*r, rng()*Math.PI*2); }
 }
 function groundHeightAt(x,z){
   let best=0, ang=0;
