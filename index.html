@@ -532,6 +532,10 @@
         <button class="modebtn" data-mode="freeroam"><span class="mi">🛣️</span>Free Roam</button>
       </div>
       <div class="st" id="moderule">Last car standing — lose the round when HP hits 0. First to 3 wins.</div>
+      <div class="seg" id="collectSeg" style="display:none">
+        <button data-collect="off" class="on">🚗 Free drive</button>
+        <button data-collect="on">🚩 Collect 10</button>
+      </div>
     </div>
     <div class="mpsub" id="arenaWrap">
       <div class="sublbl">Arena preset</div>
@@ -805,6 +809,12 @@ modeBtns.forEach(b=>b.addEventListener('click',()=>{
   if(b.dataset.mode===gameMode) return;
   gameMode=b.dataset.mode; reflectMode();
 }));
+let flagMissionOn=false;
+const collectSeg=$('collectSeg');
+[...collectSeg.children].forEach(b=>b.addEventListener('click',()=>{
+  flagMissionOn = b.dataset.collect==='on';
+  [...collectSeg.children].forEach(x=>x.classList.toggle('on',x===b));
+}));
 onTap(resAgain,()=>{ if(roundTimer){clearTimeout(roundTimer);roundTimer=null;} resetMatch(); resetRound(); });
 onTap(resHome,()=>{ if(roundTimer){clearTimeout(roundTimer);roundTimer=null;} hideResult(); if(xrSession) xrSession.end(); });
 botBtns.forEach(b=>b.addEventListener('click',()=>{
@@ -856,6 +866,7 @@ function trackLayout(R){    // -> {obs:[{x,z,kind}], ramps:[{x,z,dir}]} relatif 
 function reflectMode(){
   modeBtns.forEach(x=>x.classList.toggle('on',x.dataset.mode===gameMode));
   moderule.textContent=MODE_RULE[gameMode];
+  const cs=$('collectSeg'); if(cs) cs.style.display = gameMode==='freeroam' ? 'flex' : 'none';
 }
 
 /* ---------- arena size / shape / builder ---------- */
@@ -876,7 +887,9 @@ arenaRange.addEventListener('input',()=>{ ARENA_RADIUS=+arenaRange.value; reflec
 let arenaPresetUrl=null, arenaNoObstacles=false, selectedArena='none', arenaCollide=false;
 const ARENAS=[
   {id:'none', name:'Default', emoji:'⬜', sw:'linear-gradient(135deg,#3a3f4a,#1b1e25)'},
-  {id:'pup',  name:'Pup', emoji:'🐶', glb:'arena-pup.glb', shape:'square', r:1.8, noObs:true, collide:true, sw:'linear-gradient(135deg,#7bdc8b,#1f5b2a)'},
+  {id:'pup',  name:'Pup',     emoji:'🐶', glb:'arena-pup.glb', shape:'square', r:1.8, noObs:true, collide:true, sw:'linear-gradient(135deg,#7bdc8b,#1f5b2a)'},
+  {id:'a2',   name:'Arena 2', emoji:'🏁', glb:'arena-2.glb',   shape:'square', r:1.8, noObs:true, collide:true, sw:'linear-gradient(135deg,#4aa3ff,#1b3a6b)'},
+  {id:'a3',   name:'Arena 3', emoji:'🏟️', glb:'arena-3.glb',   shape:'square', r:1.8, noObs:true, collide:true, sw:'linear-gradient(135deg,#ffd24a,#a05a10)'},
 ];
 const arenasel=$('arenasel');
 function applyArena(a){
@@ -1374,7 +1387,8 @@ async function startDriving(){
   ownHP=100; dead=false; eliminated=false; myScore=0; nitro=100; shieldUntil=0; updateHpBar(); updateNitroBar();
   topctrl.style.display='flex'; sidebars.style.display='flex';     // km/h + FUEL/NITRO tampil
   await loadObsModels();                                          // GLB tire/barrel/ramp (cached)
-  if(arenaPresetUrl){ try{ arenaGlbData=await fetch(arenaPresetUrl).then(r=>r.arrayBuffer()); }catch(e){} }   // preset arena GLB
+  if(arenaPresetUrl){ try{ const res=await fetch(arenaPresetUrl); if(!res.ok) throw 0; arenaGlbData=await res.arrayBuffer(); }
+    catch(e){ arenaGlbData=null; arenaNoObstacles=false; arenaCollide=false; try{showToast('Arena slot masih kosong — pakai default');}catch(_){}} }   // preset arena GLB (slot kosong -> fallback)
   buildArena(); placeArenaModel(); spawnObstacles(); spawnPowerups();
   if(!isMP && botCount>0) await spawnBots();           // bot lawan (solo)
   if(inMatch()){ if(!car.userData.label){ addUnderGlow(car,0xff6b3d); addLabel(car, myName); } resetMatch(); }
@@ -1490,7 +1504,7 @@ function addRandomRamps(R){ const n = gameMode==='freeroam'?1:1+(rng()<0.5?1:0);
 function spawnObstacles(){
   clearObstacles(); clearRamps();
   const R=ARENA_RADIUS;
-  if(gameMode==='freeroam'){ spawnFlags(); if(!arenaNoObstacles) addRandomRamps(R); return; }   // free roam: misi bendera (+ramp kalau bukan preset)
+  if(gameMode==='freeroam'){ if(flagMissionOn) spawnFlags(); else clearFlags(); if(!arenaNoObstacles) addRandomRamps(R); return; }   // free roam: misi opsional
   clearFlags();
   if(arenaNoObstacles) return;          // arena preset udah bawa rintangan sendiri
   if(customCones && customCones.length){ for(const c of customCones) placeObstacle(c.x,c.z,'tire'); addRandomRamps(R); return; }  // Arena Builder override
@@ -1718,7 +1732,7 @@ function resetRound(){
     heading=0; car.rotation.set(0,0,0); car.visible=true; carY=0;vy=0;airborne=false;onRamp=false;carPitch=0; }
   for(const b of bots){ if(b.timer)clearTimeout(b.timer); b.hp=100; b.eliminated=false; b.speed=0; placeBot(b); botLabelHp(b); if(b.group)b.group.visible=true; }
   updateHpBar(); updateNitroBar(); hideResult(); roundResolving=false; roundPlayers=0;
-  if(gameMode==='freeroam'){ carY=0;vy=0;airborne=false; if(car){car.position.set(arenaCenter.x,arenaCenter.y,arenaCenter.z); heading=0; car.rotation.set(0,0,0);} spawnFlags(); }
+  if(gameMode==='freeroam'){ carY=0;vy=0;airborne=false; if(car){car.position.set(arenaCenter.x,arenaCenter.y,arenaCenter.z); heading=0; car.rotation.set(0,0,0);} if(flagMissionOn) spawnFlags(); }
   statusT.textContent='Race';
 }
 function updateMatch(){
