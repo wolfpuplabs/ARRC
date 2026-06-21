@@ -1897,7 +1897,7 @@ function driveCar(dt){
     else { carY=gnd.h; onRamp=gnd.h>0.002; if(onRamp) lastRampAng=gnd.ang; }
   }
   car.position.y=arenaCenter.y+carY;
-  let pitchTarget = airborne ? Math.max(-0.5,Math.min(0.55,vy*1.6)) : (onRamp? lastRampAng : 0);
+  let pitchTarget = airborne ? Math.max(-0.55,Math.min(0.55,-vy*1.6)) : (onRamp? -lastRampAng : 0);
   carPitch += (pitchTarget-carPitch)*Math.min(1,dt*10);
   // obstacle collision (ban = bumper, tong api = MELEDAK; lompati kalau lagi terbang di atasnya)
   for(const o of obstacles){
@@ -1905,7 +1905,8 @@ function driveCar(dt){
     const ox=car.position.x-o.position.x,oz=car.position.z-o.position.z,d=Math.hypot(ox,oz),min=CAR_R+o.userData.r;
     if(d<min&&d>1e-4){const nx=ox/d,nz=oz/d;car.position.x=o.position.x+nx*min;car.position.z=o.position.z+nz*min;
       if(o.userData.kind==='barrel' && Math.abs(speed)>0.14){
-        if(!SERVER_URL && !shielded()){ const nB=performance.now(); if(nB-lastObsHitT>HIT_COOLDOWN){ lastObsHitT=nB; localDamage(16+Math.abs(speed)*30); } }
+        if(!SERVER_URL && !shielded()) localDamage(18+Math.abs(speed)*30);   // tong langsung ilang -> selalu ngurangin HP sekali
+        lastObsHitT=performance.now();
         speed*=-0.6; explodeBarrel(o,speed); break;
       }
       if(Math.abs(speed)>0.1) spark((car.position.x+o.position.x)/2,(car.position.z+o.position.z)/2,0xffae42);
