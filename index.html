@@ -55,6 +55,10 @@
     background:var(--panel);border:1px solid var(--stroke);padding:9px 16px;border-radius:999px;
     backdrop-filter:blur(12px);transition:opacity .3s;max-width:80vw}
   .hint.hide{opacity:0}
+  #flaghud{position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 56px);transform:translateX(-50%);
+    font-family:var(--display);font-size:17px;letter-spacing:.04em;color:#fff7df;white-space:nowrap;
+    background:rgba(16,12,4,.55);border:1.5px solid #ffd24a;border-radius:999px;padding:7px 18px;
+    box-shadow:0 0 14px rgba(255,210,74,.7),inset 0 0 10px rgba(255,210,74,.25);backdrop-filter:blur(8px);z-index:30}
   .bottomwrap{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:center;gap:10px;
     padding:0 16px calc(env(safe-area-inset-bottom) + 24px);pointer-events:auto}
   .place{height:56px;padding:0 26px;border:none;border-radius:16px;background:var(--signal);
@@ -621,6 +625,7 @@
     <button class="sysbtn" id="exit" title="Exit AR">✕</button>
   </div>
   <div class="hint" id="hint">Move your phone to scan</div>
+  <div id="flaghud" style="display:none"></div>
 
   <div class="board" id="board"></div>
 
@@ -1368,16 +1373,20 @@ function repark(){
 function buildArena(){
   if(arenaRing){ scene.remove(arenaRing); arenaRing=null; }
   if(gameMode==='freeroam') return;            // free roam: tanpa batas arena
-  const R=ARENA_RADIUS;
+  const R=ARENA_RADIUS, NEON=0x35ecff;
+  const grp=new THREE.Group();
   if(arenaShape==='square'){
     const pts=[[-R,-R],[R,-R],[R,R],[-R,R],[-R,-R]].map(p=>new THREE.Vector3(p[0],0,p[1]));
-    const g=new THREE.BufferGeometry().setFromPoints(pts);
-    arenaRing=new THREE.Line(g,new THREE.LineBasicMaterial({color:0x25e0ff,transparent:true,opacity:.65}));
+    const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({color:NEON,transparent:true,opacity:.95,blending:THREE.AdditiveBlending,depthWrite:false}));
+    grp.add(line); grp.userData.core=line;
   } else {
-    const geo=new THREE.RingGeometry(R-0.012,R+0.012,90).rotateX(-Math.PI/2);
-    arenaRing=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:0x25e0ff,transparent:true,opacity:.55,side:THREE.DoubleSide}));
+    const mk=(ri,ro,op)=>{ const m=new THREE.Mesh(new THREE.RingGeometry(ri,ro,96).rotateX(-Math.PI/2),
+      new THREE.MeshBasicMaterial({color:NEON,transparent:true,opacity:op,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false})); return m; };
+    const core=mk(R-0.008,R+0.008,0.95); grp.add(mk(R-0.06,R-0.008,0.16)); grp.add(mk(R+0.008,R+0.06,0.16)); grp.add(core);
+    grp.userData.core=core;
   }
-  arenaRing.position.copy(arenaCenter); arenaRing.position.y+=0.002; scene.add(arenaRing);
+  arenaRing=grp; arenaRing.position.copy(arenaCenter); arenaRing.position.y+=0.002; scene.add(arenaRing);
 }
 /* ---------- obstacle/ramp 3D models (GLB, cached once, cloned; procedural fallback) ---------- */
 const obsTpl={};
@@ -1455,6 +1464,8 @@ function addRandomRamps(R){ const n = gameMode==='freeroam'?1:1+(rng()<0.5?1:0);
 function spawnObstacles(){
   clearObstacles(); clearRamps();
   const R=ARENA_RADIUS;
+  if(gameMode==='freeroam'){ spawnFlags(); addRandomRamps(R); return; }   // free roam: misi bendera + ramp
+  clearFlags();
   if(customCones && customCones.length){ for(const c of customCones) placeObstacle(c.x,c.z,'tire'); addRandomRamps(R); return; }  // Arena Builder override
   const L=trackLayout(R);
   if(L){ for(const o of L.obs) placeObstacle(o.x,o.z,o.kind); for(const rp of L.ramps) addRamp(rp.x,rp.z,rp.dir); return; }  // predefined track
@@ -1486,7 +1497,7 @@ function clearObstacles(){obstacles.forEach(o=>scene.remove(o));obstacles.length
 function clearRamps(){ ramps.forEach(r=>scene.remove(r.group)); ramps.length=0; }
 function clearMarks(){marks.forEach(m=>scene.remove(m));marks.length=0;}
 function clearPowerups(){ powerups.forEach(p=>{ if(p.timer)clearTimeout(p.timer); scene.remove(p.mesh); }); powerups.length=0; }
-function clearWorld(){ if(arenaRing){scene.remove(arenaRing);arenaRing=null;} clearObstacles(); clearRamps(); clearMarks(); clearPowerups();
+function clearWorld(){ if(arenaRing){scene.remove(arenaRing);arenaRing=null;} clearObstacles(); clearRamps(); clearMarks(); clearPowerups(); clearFlags();
   for(const f of flashes) scene.remove(f.mesh); flashes.length=0;
   if(shieldMesh) shieldMesh.visible=false; clearBots();
   if(arenaModel){ scene.remove(arenaModel); arenaModel=null; }
@@ -1548,6 +1559,60 @@ function collectPowerup(p){
   p.timer=setTimeout(()=>{ if(carPlaced) placePowerup(p); }, 8000);   // respawn di titik baru
 }
 function shielded(){ return performance.now()<shieldUntil; }
+
+/* ---------- Free Roam mission: kumpulin 10 bendera (time attack) ---------- */
+const flagHud=$('flaghud'), flagItems=[]; let flagCount=0, flagTotal=10, flagStartT=0, flagActive=false;
+function makeFlag(){
+  const g=new THREE.Group();
+  const core=new THREE.Mesh(new THREE.OctahedronGeometry(0.042,0),
+    new THREE.MeshStandardMaterial({color:0xffd24a,emissive:0xffae20,emissiveIntensity:.8,roughness:.25,metalness:.5}));
+  core.castShadow=true; g.add(core);
+  const ring=new THREE.Mesh(new THREE.RingGeometry(0.055,0.072,24).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({color:0xffd24a,transparent:true,opacity:.55,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
+  ring.position.y=-0.038; g.add(ring); g.userData.core=core;
+  return g;
+}
+function clearFlags(){ for(const f of flagItems) scene.remove(f.mesh); flagItems.length=0; flagActive=false; updateFlagHud(); }
+function spawnFlags(){
+  for(const f of flagItems) scene.remove(f.mesh); flagItems.length=0;
+  flagCount=0; flagStartT=0; flagActive=true;
+  for(let i=0;i<flagTotal;i++){ const mesh=makeFlag(); scene.add(mesh);
+    let o,tries=0; do{ o=randInArena(); tries++; }while(Math.hypot(o.x,o.z)<0.4 && tries<24);   // jauh dari titik spawn
+    mesh.position.set(arenaCenter.x+o.x, arenaCenter.y+0.07, arenaCenter.z+o.z);
+    flagItems.push({mesh,taken:false}); }
+  updateFlagHud();
+}
+function updateFlags(dt){
+  if(!flagActive) return;
+  const t=performance.now()/1000;
+  for(const f of flagItems){ if(f.taken) continue;
+    const c=f.mesh.userData.core; c.rotation.y+=dt*2.2;
+    c.scale.setScalar(1+Math.sin(t*4+f.mesh.position.x*6)*0.18);                         // occulating
+    c.material.emissiveIntensity=0.6+0.5*(0.5+0.5*Math.sin(t*5+f.mesh.position.z*7));     // glow animated
+    f.mesh.position.y=arenaCenter.y+0.07+Math.sin(t*2.5+f.mesh.position.x*5)*0.015;
+    if(carPlaced&&!dead&&car){ const dx=car.position.x-f.mesh.position.x, dz=car.position.z-f.mesh.position.z;
+      if(Math.hypot(dx,dz)<0.1) collectFlag(f); }
+  }
+  if(flagStartT) updateFlagHud();
+}
+function collectFlag(f){
+  f.taken=true; scene.remove(f.mesh);
+  if(!flagStartT) flagStartT=performance.now();
+  flagCount++;
+  spawnFlash(f.mesh.position); spawnBurst(f.mesh.position,0xffd24a,18,1.1); try{ sfxPickup(); }catch(e){}
+  showToast('🚩 '+flagCount+' / '+flagTotal);
+  updateFlagHud();
+  if(flagCount>=flagTotal){ flagActive=false;
+    const secs=((performance.now()-flagStartT)/1000).toFixed(1);
+    showResult('🏁 Cleared!','champ','All '+flagTotal+' flags in '+secs+'s', true); }
+}
+function updateFlagHud(){
+  if(!flagHud) return;
+  if(gameMode!=='freeroam' || !flagActive){ flagHud.style.display='none'; return; }
+  flagHud.style.display='block';
+  const secs = flagStartT ? ((performance.now()-flagStartT)/1000).toFixed(1) : '0.0';
+  flagHud.textContent='🚩 '+flagCount+'/'+flagTotal+'  ·  '+secs+'s';
+}
 function dropMark(localX){
   const p=car.localToWorld(new THREE.Vector3(localX,0.0015,-0.062));
   let m; if(marks.length>=MAX_MARKS){m=marks.shift();}else{m=new THREE.Mesh(markGeo,markMat);scene.add(m);}
@@ -1613,6 +1678,7 @@ function resetRound(){
     heading=0; car.rotation.set(0,0,0); car.visible=true; carY=0;vy=0;airborne=false;onRamp=false;carPitch=0; }
   for(const b of bots){ if(b.timer)clearTimeout(b.timer); b.hp=100; b.eliminated=false; b.speed=0; placeBot(b); botLabelHp(b); if(b.group)b.group.visible=true; }
   updateHpBar(); updateNitroBar(); hideResult(); roundResolving=false; roundPlayers=0;
+  if(gameMode==='freeroam'){ carY=0;vy=0;airborne=false; if(car){car.position.set(arenaCenter.x,arenaCenter.y,arenaCenter.z); heading=0; car.rotation.set(0,0,0);} spawnFlags(); }
   statusT.textContent='Race';
 }
 function updateMatch(){
@@ -1779,6 +1845,17 @@ function updateParticles(dt){
       p.mesh.material.opacity=t; p.mesh.scale.setScalar(0.4+t*0.9); }
   }
 }
+function spawnDust(x,z){
+  let p=PARTICLES.find(q=>!q.alive);
+  if(!p){ if(PARTICLES.length>=PMAX) return;
+    const m=new THREE.Mesh(pGeo,new THREE.MeshBasicMaterial({transparent:true,depthWrite:false}));
+    m.renderOrder=8; scene.add(m); p={mesh:m,vel:new THREE.Vector3(),life:0,maxLife:1,alive:false,smoke:false}; PARTICLES.push(p); }
+  p.smoke=true; p.mesh.material.blending=THREE.NormalBlending; p.mesh.material.color.setHex(0xcbb78d);
+  p.mesh.position.set(x,arenaCenter.y+0.012,z);
+  const a=Math.random()*Math.PI*2, sp=0.05+Math.random()*0.09;
+  p.vel.set(Math.cos(a)*sp,0.05+Math.random()*0.08,Math.sin(a)*sp);
+  p.maxLife=p.life=0.4+Math.random()*0.3; p.alive=true; p.mesh.visible=true; p.mesh.scale.setScalar(0.7);
+}
 function spawnFlash(pos){
   const geo=new THREE.RingGeometry(0.02,0.05,24).rotateX(-Math.PI/2);
   const mat=new THREE.MeshBasicMaterial({color:0xffb24a,transparent:true,opacity:.9,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
@@ -1895,6 +1972,13 @@ function sfxCrash(intensity){
   const og=audioCtx.createGain(); og.gain.setValueAtTime(v*0.9,now); og.gain.exponentialRampToValueAtTime(0.001,now+0.17);
   o.connect(og); og.connect(master); o.start(); o.stop(now+0.19);
 }
+function sfxPickup(){
+  if(!audioCtx||muted) return; const now=audioCtx.currentTime;
+  const o=audioCtx.createOscillator(); o.type='triangle';
+  o.frequency.setValueAtTime(680,now); o.frequency.exponentialRampToValueAtTime(1360,now+0.11);
+  const g=audioCtx.createGain(); g.gain.setValueAtTime(0.0001,now); g.gain.exponentialRampToValueAtTime(0.32,now+0.02); g.gain.exponentialRampToValueAtTime(0.001,now+0.2);
+  o.connect(g); g.connect(master); o.start(); o.stop(now+0.22);
+}
 function toggleMute(){
   muted=!muted; muteBtn.textContent=muted?'🔇':'🔊';
   if(audioCtx) master.gain.setTargetAtTime(muted?0:0.9,audioCtx.currentTime,0.05);
@@ -1914,11 +1998,12 @@ function render(t,frame){
       if(surfaceFound){ surfaceFound=false; dot.className='dot searching'; statusT.textContent='Looking for a surface…'; placeBtn.disabled=true; } }
   } else if(carPlaced){ reticle.visible=false; }
 
-  if(carPlaced&&car){ updateWheel(dt); driveCar(dt); updateAudio(); updatePowerups(dt); }
+  if(carPlaced&&car){ updateWheel(dt); driveCar(dt); updateAudio(); updatePowerups(dt); updateFlags(dt); }
   if(bots.length&&carPlaced) updateBots(dt);
   if(isMP&&calib) updateRemotes(dt);
   if(inMatch()&&carPlaced) updateMatch();
   updateParticles(dt); updateFlashes(dt);
+  if(arenaRing&&arenaRing.userData.core){ arenaRing.userData.core.material.opacity=0.7+0.28*Math.sin(performance.now()/600); }
   renderer.render(scene,camera);
 }
 
@@ -2038,6 +2123,8 @@ function driveCar(dt){
   }
   car.rotation.set(carPitch, heading, 0);
   flameTick++; if((flameTick&1)===0){ for(const o of obstacles){ const f=o.userData.flame; if(f){ f.scale.y=0.75+Math.random()*0.55; f.material.opacity=0.7+Math.random()*0.3; } } }
+  if(!airborne && Math.abs(speed)>0.12 && (flameTick%3===0))   // debu dari ban pas jalan
+    spawnDust(car.position.x-Math.sin(heading)*0.07, car.position.z-Math.cos(heading)*0.07);
   const steerAngle=steerInput*STEER_MAX;
   for(const p of frontWheels) p.rotation.y=steerAngle;
   const spin=(speed*dt)/WHEEL_R;
