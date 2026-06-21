@@ -1,9 +1,10 @@
 /* KART CRASH service worker — offline support (solo). Bump CACHE to force update. */
-const CACHE = 'kartcrash-v5';
+const CACHE = 'kartcrash-v6';
 const CORE = [
   './', 'index.html', 'manifest.json',
   'icon-180.png', 'icon-192.png', 'icon-512.png',
   'rc-car.glb', 'pup-white.glb', 'pup-black.glb',
+  'obs-tire.glb', 'obs-barrel.glb', 'obs-ramp.glb',
   'vendor/three.module.js', 'vendor/peerjs.min.js',
   'vendor/addons/loaders/GLTFLoader.js',
   'vendor/addons/utils/BufferGeometryUtils.js',
