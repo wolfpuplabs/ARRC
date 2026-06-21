@@ -713,6 +713,7 @@ const clock=new THREE.Clock();
 
 let speed=0,heading=0,steerInput=0,throttleInput=0,boost=1,drifting=false;
 const MAX_SPEED=0.6,MAX_REV=0.4,ACCEL=2.2,STEER_MAX=0.55,TURN_RATE=2.6,WHEEL_R=0.022,CAR_R=0.09;
+const SPAWN_CLEAR_OBS=0.30, SPAWN_CLEAR_RAMP=0.45;   // zona bebas di titik spawn (tengah) biar mobil ga kejebak
 /* jump / ramp physics */
 let carY=0, vy=0, airborne=false, onRamp=false, carPitch=0, lastRampAng=0.5, flameTick=0;
 const GRAV=2.6, RAMP_LAUNCH=0.8;
@@ -838,7 +839,7 @@ function trackLayout(R){    // -> {obs:[{x,z,kind}], ramps:[{x,z,dir}]} relatif 
   if(selectedTrack==='oval'){ const obs=[],n=10; for(let i=0;i<n;i++){ const a=i/n*Math.PI*2; obs.push({x:Math.cos(a)*R*0.82,z:Math.sin(a)*R*0.55,kind:i%3===0?'barrel':'tire'}); }
     return {obs, ramps:[{x:0,z:R*0.6,dir:Math.PI},{x:0,z:-R*0.6,dir:0}]}; }
   if(selectedTrack==='slalom'){ const obs=[]; for(let i=0;i<6;i++){ const z=(-0.72+i*0.29)*R, x=(i%2?0.38:-0.38)*R; obs.push({x,z,kind:i%2?'barrel':'tire'}); }
-    return {obs, ramps:[{x:0,z:0,dir:0}]}; }
+    return {obs, ramps:[{x:0,z:R*0.85,dir:Math.PI}]}; }
   if(selectedTrack==='cross'){ const obs=[],ring=8; for(let i=0;i<ring;i++){ const a=i/ring*Math.PI*2; obs.push({x:Math.cos(a)*R*0.72,z:Math.sin(a)*R*0.72,kind:i%2?'tire':'barrel'}); }
     obs.push({x:0,z:0,kind:'barrel'});
     return {obs, ramps:[{x:R*0.42,z:0,dir:Math.PI/2},{x:-R*0.42,z:0,dir:-Math.PI/2}]}; }
@@ -1184,7 +1185,7 @@ async function startAR(){
 
 /* in-game ⛶ fullscreen button auto-wired via .fsact */
 onTap(exitBtn,()=>{ if(xrSession) xrSession.end(); });
-onTap(homeBtn,()=>{ hideResult(); if(xrSession){ xrSession.end(); } else { hud.style.display='none'; gate.style.display='flex'; } });
+onTap(homeBtn,()=>{ try{ if(xrSession) xrSession.end(); }catch(e){} location.reload(); });   // balik ke menu (paling pasti)
 
 function initThree(){
   if(renderer) return;
@@ -1433,11 +1434,13 @@ function makeBarrel(){
   flame.name='__flame'; flame.position.y=0.14; flame.renderOrder=9; g.add(flame); g.userData.flame=flame;
   g.userData.r=0.05; g.userData.top=0.14; g.userData.kind='barrel'; return g;
 }
-function placeObstacle(sx,sz,kind){ const o = kind==='barrel'?makeBarrel():makeTire();   // base model di y=0
+function placeObstacle(sx,sz,kind){ if(Math.hypot(sx,sz)<SPAWN_CLEAR_OBS) return;   // jangan taruh di titik spawn
+  const o = kind==='barrel'?makeBarrel():makeTire();   // base model di y=0
   if(calib){ const lp=sharedToLocal(sx,sz); o.position.set(lp.x,arenaCenter.y+0.001,lp.z); }
   else o.position.set(arenaCenter.x+sx,arenaCenter.y+0.001,arenaCenter.z+sz);
   scene.add(o); obstacles.push(o); }
 function addRamp(sx,sz,dir){
+  if(Math.hypot(sx,sz)<SPAWN_CLEAR_RAMP) return;        // jangan taruh ramp di titik spawn
   let g, dims;
   if(obsTpl.ramp){ g=obsTpl.ramp.clone(true); dims=obsTpl.rampDims; }
   else { const ang=0.3, Lh=0.24, W=0.34, slope=Lh/Math.cos(ang), h=Lh*Math.tan(ang); g=new THREE.Group();
