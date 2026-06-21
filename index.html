@@ -534,7 +534,10 @@
       <div class="st" id="moderule">Last car standing — lose the round when HP hits 0. First to 3 wins.</div>
     </div>
     <div class="mpsub" id="arenaWrap">
-      <div class="sublbl">Arena size &amp; shape</div>
+      <div class="sublbl">Arena preset</div>
+      <div class="carsel" id="arenasel"></div>
+      <div class="st" id="arenaPreSt">Default = procedural (use Track below). Pup = pre-built course.</div>
+      <div class="sublbl" style="margin-top:14px">Arena size &amp; shape</div>
       <div class="row">
         <input id="arenaRange" type="range" min="0.7" max="2.2" step="0.05" value="1.1" />
         <span class="val" id="arenaVal">Ø 2.2 m</span>
@@ -869,6 +872,26 @@ function reflectArena(){
 arenaRange.addEventListener('input',()=>{ ARENA_RADIUS=+arenaRange.value; reflectArena(); });
 [...shapeSeg.children].forEach(b=>b.addEventListener('click',()=>{ arenaShape=b.dataset.shape; reflectArena(); }));
 
+/* ---------- arena presets (GLB) pick like a Pup ---------- */
+let arenaPresetUrl=null, arenaNoObstacles=false, selectedArena='none';
+const ARENAS=[
+  {id:'none', name:'Default', emoji:'⬜', sw:'linear-gradient(135deg,#3a3f4a,#1b1e25)'},
+  {id:'pup',  name:'Pup', emoji:'🐶', glb:'arena-pup.glb', shape:'square', r:1.8, noObs:true, sw:'linear-gradient(135deg,#7bdc8b,#1f5b2a)'},
+];
+const arenasel=$('arenasel');
+function applyArena(a){
+  selectedArena=a.id;
+  if(a.id==='none'){ arenaPresetUrl=null; arenaNoObstacles=false; }
+  else { arenaPresetUrl=a.glb; arenaNoObstacles=!!a.noObs; if(a.shape) arenaShape=a.shape; if(a.r) ARENA_RADIUS=a.r;
+    arenaGlbData=null; if(arenaModel){scene.remove(arenaModel);arenaModel=null;} }   // preset override upload manual
+  reflectArena();
+}
+ARENAS.forEach(a=>{ const b=document.createElement('button'); b.className='carsw'+(a.id===selectedArena?' on':''); b.title=a.name;
+  b.innerHTML='<i style="background:'+a.sw+'"></i><span class="pupemoji">'+a.emoji+'</span>';
+  b.addEventListener('click',()=>{ [...arenasel.children].forEach(x=>x.classList.remove('on')); b.classList.add('on'); applyArena(a); });
+  arenasel.appendChild(b);
+});
+
 /* arena code: base64(JSON {r,s,c:[[x,z]]}) */
 function encodeArena(){ const o={r:+ARENA_RADIUS.toFixed(2),s:arenaShape[0],c:builderCones.map(c=>[+c.x.toFixed(2),+c.z.toFixed(2)])};
   try{ return btoa(JSON.stringify(o)); }catch(e){ return ''; } }
@@ -939,6 +962,8 @@ reflectArena();
 /* ---------- custom arena GLB (visual scenery, local only) ---------- */
 let arenaGlbData=null, arenaModel=null;
 $('arenaglb').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return;
+  arenaPresetUrl=null; arenaNoObstacles=false; selectedArena='none';
+  if(typeof arenasel!=='undefined'&&arenasel){ [...arenasel.children].forEach((x,i)=>x.classList.toggle('on',i===0)); }
   const r=new FileReader(); r.onload=()=>{ arenaGlbData=r.result; arenaSt.textContent='Arena model ready: '+f.name+' (scenery only, local).'; }; r.readAsArrayBuffer(f); });
 $('arenaglbClear').addEventListener('click',()=>{ arenaGlbData=null; if(arenaModel){scene.remove(arenaModel);arenaModel=null;} reflectArena(); });
 function placeArenaModel(){
@@ -1349,6 +1374,7 @@ async function startDriving(){
   ownHP=100; dead=false; eliminated=false; myScore=0; nitro=100; shieldUntil=0; updateHpBar(); updateNitroBar();
   topctrl.style.display='flex'; sidebars.style.display='flex';     // km/h + FUEL/NITRO tampil
   await loadObsModels();                                          // GLB tire/barrel/ramp (cached)
+  if(arenaPresetUrl){ try{ arenaGlbData=await fetch(arenaPresetUrl).then(r=>r.arrayBuffer()); }catch(e){} }   // preset arena GLB
   buildArena(); placeArenaModel(); spawnObstacles(); spawnPowerups();
   if(!isMP && botCount>0) await spawnBots();           // bot lawan (solo)
   if(inMatch()){ if(!car.userData.label){ addUnderGlow(car,0xff6b3d); addLabel(car, myName); } resetMatch(); }
@@ -1464,8 +1490,9 @@ function addRandomRamps(R){ const n = gameMode==='freeroam'?1:1+(rng()<0.5?1:0);
 function spawnObstacles(){
   clearObstacles(); clearRamps();
   const R=ARENA_RADIUS;
-  if(gameMode==='freeroam'){ spawnFlags(); addRandomRamps(R); return; }   // free roam: misi bendera + ramp
+  if(gameMode==='freeroam'){ spawnFlags(); if(!arenaNoObstacles) addRandomRamps(R); return; }   // free roam: misi bendera (+ramp kalau bukan preset)
   clearFlags();
+  if(arenaNoObstacles) return;          // arena preset udah bawa rintangan sendiri
   if(customCones && customCones.length){ for(const c of customCones) placeObstacle(c.x,c.z,'tire'); addRandomRamps(R); return; }  // Arena Builder override
   const L=trackLayout(R);
   if(L){ for(const o of L.obs) placeObstacle(o.x,o.z,o.kind); for(const rp of L.ramps) addRamp(rp.x,rp.z,rp.dir); return; }  // predefined track
