@@ -1889,6 +1889,7 @@ function driveCar(dt){
   if(Math.abs(speed)<.001) speed=0;
   // mundur dibiarkan spt sekarang (udah benar), maju di-flip biar benar juga: pakai -steer*speed
   heading+=-steerInput*speed*TURN_RATE*dt;
+  const px=car.position.x, pz=car.position.z;     // simpan posisi sebelum gerak (buat block sisi ramp)
   car.position.x+=Math.sin(heading)*speed*dt;
   car.position.z+=Math.cos(heading)*speed*dt;
   // arena bounds (free roam: tanpa batas; sumo: keluar = KO; lainnya: mentok)
@@ -1905,9 +1906,15 @@ function driveCar(dt){
     if(carY<=land){ const impact=vy; carY=land; vy=0; airborne=false; onRamp=gnd.h>0.002;
       if(impact<-0.6){ spawnSmoke(new THREE.Vector3(car.position.x,arenaCenter.y+0.02,car.position.z),5,1); try{sfxCrash(0.3);}catch(e){} } }
   } else {
-    if(gnd.h>carY+0.004){ carY=gnd.h; onRamp=true; lastRampAng=gnd.ang; }
-    else if(gnd.h<carY-0.004){ airborne=true; vy=Math.abs(speed)*Math.sin(lastRampAng||0.5)*RAMP_LAUNCH+0.05; } // lepas ujung ramp = lompat
-    else { carY=gnd.h; onRamp=gnd.h>0.002; if(onRamp) lastRampAng=gnd.ang; }
+    const MAXSTEP=0.02;                              // lip maksimum yg bisa dinaiki tanpa ramp
+    if(gnd.h>0.002){                                 // lagi di atas footprint ramp
+      if(gnd.h > carY+MAXSTEP){                       // nabrak sisi tinggi/belakang -> jadi tembok
+        car.position.x=px; car.position.z=pz; speed*=-0.3; onRamp=false;
+      } else { carY=gnd.h; onRamp=true; lastRampAng=gnd.ang; }   // naik/turun mulus ngikutin slope
+    } else {                                          // di luar footprint ramp
+      if(carY>0.012){ airborne=true; vy=Math.abs(speed)*Math.sin(lastRampAng||0.5)*RAMP_LAUNCH+0.05; } // lepas ujung atas = lompat
+      else { carY=0; onRamp=false; }
+    }
   }
   car.position.y=arenaCenter.y+carY;
   let pitchTarget = airborne ? Math.max(-0.55,Math.min(0.55,-vy*1.6)) : (onRamp? -lastRampAng : 0);
