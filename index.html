@@ -816,7 +816,7 @@ const collectSeg=$('collectSeg');
   [...collectSeg.children].forEach(x=>x.classList.toggle('on',x===b));
 }));
 onTap(resAgain,()=>{ if(roundTimer){clearTimeout(roundTimer);roundTimer=null;} resetMatch(); resetRound(); });
-onTap(resHome,()=>{ if(roundTimer){clearTimeout(roundTimer);roundTimer=null;} hideResult(); if(xrSession) xrSession.end(); });
+onTap(resHome,()=>{ if(roundTimer){clearTimeout(roundTimer);roundTimer=null;} hideResult(); try{ if(xrSession) xrSession.end(); }catch(e){} location.reload(); });   // sama kayak Home di gameplay
 botBtns.forEach(b=>b.addEventListener('click',()=>{
   botCount=+b.dataset.bots; botBtns.forEach(x=>x.classList.toggle('on',x===b));
 }));
@@ -1668,7 +1668,7 @@ function checkLap(){
   if(!raceActive||raceDone||!car) return;
   const rx=car.position.x-finMid.x, rz=car.position.z-finMid.z;
   const rel=rx*finDir.x+rz*finDir.z, lat=rx*finPerp.x+rz*finPerp.z, dist=Math.hypot(rx,rz);
-  if(dist>ARENA_RADIUS*0.7) raceArmed=true;                       // udah keliling jauh
+  if(dist>ARENA_RADIUS*0.9) raceArmed=true;                       // harus capai loop seberang (figure-8 penuh) baru sah
   if(raceArmed && raceFinPrev<0 && rel>=0 && Math.abs(lat)<finHalf){ // nyebrang garis finish maju
     raceArmed=false; raceLaps++;
     if(raceLaps>=raceTotal){ raceDone=true; finishRace(); }
