@@ -888,7 +888,7 @@ let arenaPresetUrl=null, arenaNoObstacles=false, selectedArena='none', arenaColl
 const ARENAS=[
   {id:'none', name:'Default', emoji:'⬜', sw:'linear-gradient(135deg,#3a3f4a,#1b1e25)'},
   {id:'pup',  name:'Pup',     emoji:'🐶', glb:'arena-pup.glb', shape:'square', r:1.8, noObs:true, collide:true, sw:'linear-gradient(135deg,#7bdc8b,#1f5b2a)'},
-  {id:'a2',   name:'Arena 2', emoji:'🏁', glb:'arena-2.glb',   shape:'square', r:3.0, noObs:true, collide:true, spawn:{x:0,z:0,yaw:0}, sw:'linear-gradient(135deg,#4aa3ff,#1b3a6b)'},
+  {id:'a2',   name:'Arena 2', emoji:'🏁', glb:'arena-2.glb',   shape:'square', r:3.0, noObs:true, collide:true, spawn:{x:-0.20,z:0.23,yaw:-0.70}, sw:'linear-gradient(135deg,#4aa3ff,#1b3a6b)'},
   {id:'a3',   name:'Arena 3', emoji:'🏟️', glb:'arena-3.glb',   shape:'square', r:1.8, noObs:true, collide:true, sw:'linear-gradient(135deg,#ffd24a,#a05a10)'},
 ];
 const arenasel=$('arenasel');
@@ -1382,7 +1382,8 @@ async function startDriving(){
   if(building) return;
   if(!car){ building=true; car=await buildCar(myCarColor); frontWheels=car.userData.front||[]; allWheels=car.userData.all||[]; scene.add(car); building=false; }
   car.position.copy(arenaCenter); heading=0; speed=0; car.rotation.order='YXZ'; car.rotation.set(0,0,0); car.visible=true; carPlaced=true; carY=0;vy=0;airborne=false;onRamp=false;carPitch=0;
-  if(arenaSpawn){ car.position.x+=(arenaSpawn.x||0)*ARENA_RADIUS; car.position.z+=(arenaSpawn.z||0)*ARENA_RADIUS; heading=arenaSpawn.yaw||0; }   // spawn di garis start arena preset
+  if(arenaSpawn){ const ay=(calib&&calib.yaw)||0, sx=(arenaSpawn.x||0)*ARENA_RADIUS, sz=(arenaSpawn.z||0)*ARENA_RADIUS;
+    car.position.x+=sx*Math.cos(ay)+sz*Math.sin(ay); car.position.z+=-sx*Math.sin(ay)+sz*Math.cos(ay); heading=(arenaSpawn.yaw||0)+ay; }   // spawn di garis start arena preset (ikut rotasi kalibrasi)
   if(shadowGround){ shadowGround.position.set(arenaCenter.x,arenaCenter.y+0.001,arenaCenter.z); shadowGround.visible=true; }
   if(keyLight){ keyLight.position.set(arenaCenter.x+0.6,arenaCenter.y+1.4,arenaCenter.z+0.5); keyLight.target.position.copy(arenaCenter); keyLight.target.updateMatrixWorld(); }
   ownHP=100; dead=false; eliminated=false; myScore=0; nitro=100; shieldUntil=0; updateHpBar(); updateNitroBar();
