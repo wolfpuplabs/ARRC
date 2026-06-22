@@ -641,6 +641,7 @@
     <div class="sub" id="ressub"></div>
     <div class="cd" id="rescd"></div>
     <div class="btnrow">
+      <button class="again" id="resstart" style="display:none">🏁 START RACE</button>
       <button class="again" id="resagain">Play again</button>
       <button class="home" id="reshome">🏠 Back to home</button>
     </div>
@@ -711,7 +712,7 @@ const exitBtn=$('exit'), homeBtn=$('homebtn');
 const roomIn=$('room'),connectBtn=$('connect'),mpst=$('mpst'),nameIn=$('pname');
 const modeBtns=[...document.querySelectorAll('.modebtn[data-mode]')], moderule=$('moderule');
 const botBtns=[...document.querySelectorAll('.modebtn[data-bots]')];
-const resultEl=$('result'),resBig=$('resbig'),resSub=$('ressub'),resCd=$('rescd'),resAgain=$('resagain'),resHome=$('reshome');
+const resultEl=$('result'),resBig=$('resbig'),resSub=$('ressub'),resCd=$('rescd'),resAgain=$('resagain'),resHome=$('reshome'),resStart=$('resstart');
 /* WebXR Viewer (iOS) sering tak meneruskan event 'click' ke dom-overlay; dengarkan juga 'pointerup' (dedup) */
 function onTap(el,fn){ if(!el) return; let t=0;
   const h=e=>{ const n=Date.now(); if(n-t<450) return; t=n; fn(e); };
@@ -817,6 +818,7 @@ const collectSeg=$('collectSeg');
 }));
 onTap(resAgain,()=>{ if(roundTimer){clearTimeout(roundTimer);roundTimer=null;} resetMatch(); resetRound(); });
 onTap(resHome,()=>{ if(roundTimer){clearTimeout(roundTimer);roundTimer=null;} hideResult(); try{ if(xrSession) xrSession.end(); }catch(e){} location.reload(); });   // sama kayak Home di gameplay
+onTap(resStart,()=>{ startCountdown(); });   // mulai balapan + countdown
 botBtns.forEach(b=>b.addEventListener('click',()=>{
   botCount=+b.dataset.bots; botBtns.forEach(x=>x.classList.toggle('on',x===b));
 }));
@@ -1646,26 +1648,48 @@ function shielded(){ return performance.now()<shieldUntil; }
 /* ---------- Free Roam mission: kumpulin 10 bendera (time attack) ---------- */
 const flagHud=$('flaghud'), flagItems=[]; let flagCount=0, flagTotal=10, flagStartT=0, flagActive=false;
 /* ---------- balapan lap (auto di track preset) ---------- */
-let raceActive=false, raceTotal=3, raceLaps=0, raceArmed=false, raceFinPrev=0, raceStartT=0, raceDone=false, finHalf=0.6;
-const finMid=new THREE.Vector3(), finDir=new THREE.Vector3(), finPerp=new THREE.Vector3();
+let raceActive=false, raceTotal=3, raceLaps=0, raceArmed=false, raceFinPrev=0, raceStartT=0, raceDone=false, finHalf=0.6, raceLocked=false, racePath=null;
+const finMid=new THREE.Vector3(), finDir=new THREE.Vector3(), finPerp=new THREE.Vector3(), _wpv=new THREE.Vector3();
+const RACE_PATH_A2=[[0.282,0.122],[0.510,0.267],[0.499,0.537],[0.260,0.662],[0.032,0.517],[0.043,0.247],[-0.067,-0.547],[-0.056,-0.817],[-0.284,-0.962],[-0.523,-0.837],[-0.534,-0.567],[-0.306,-0.422]];
+function pathWorld(o,out){ const ay=(calib&&calib.yaw)||0, sx=o[0]*ARENA_RADIUS, sz=o[1]*ARENA_RADIUS;
+  out.x=arenaCenter.x+sx*Math.cos(ay)+sz*Math.sin(ay); out.z=arenaCenter.z+(-sx*Math.sin(ay)+sz*Math.cos(ay)); }
+function nearestWp(x,z){ if(!racePath) return 0; let bi=0,bd=1e9; for(let i=0;i<racePath.length;i++){ pathWorld(racePath[i],_wpv); const d=(_wpv.x-x)**2+(_wpv.z-z)**2; if(d<bd){bd=d;bi=i;} } return (bi+1)%racePath.length; }
 function setupRace(){
   raceActive = !!(arenaCollide && arenaPresetUrl);     // cuma di track GLB preset
-  if(!raceActive){ if(flagHud&&!flagActive) flagHud.style.display='none'; return; }
-  raceLaps=0; raceArmed=false; raceDone=false; raceStartT=performance.now(); raceFinPrev=-1;
+  racePath = (raceActive && selectedArena==='a2') ? RACE_PATH_A2 : null;
+  if(!raceActive){ raceLocked=false; if(flagHud&&!flagActive) flagHud.style.display='none'; return; }
+  raceLaps=0; raceArmed=false; raceDone=false; raceFinPrev=-1;
   finMid.set(car.position.x,arenaCenter.y,car.position.z);
   finDir.set(Math.sin(heading),0,Math.cos(heading));    // arah balap
   finPerp.set(Math.cos(heading),0,-Math.sin(heading));   // tegak lurus garis (lebar)
   finHalf=ARENA_RADIUS*0.30;
-  updateLapHud();
+  for(const b of bots){ b.wp=nearestWp(b.x,b.z); }
+  raceLocked=true;                                       // kunci sampai countdown selesai
+  updateLapHud(); showRaceStart();
+}
+function showRaceStart(){
+  resBig.textContent='🏁 '+ (ARENAS.find(a=>a.id===selectedArena)?.name||'RACE'); resBig.className='big champ';
+  resSub.textContent=raceTotal+' lap • figure-8'; resCd.textContent='';
+  resStart.style.display='inline-block'; resAgain.style.display='none'; resHome.style.display='inline-block';
+  resultEl.classList.add('show');
+}
+function startCountdown(){
+  resStart.style.display='none'; resHome.style.display='none'; resSub.textContent=''; resCd.textContent='';
+  let n=3; resBig.textContent=String(n); resBig.className='big champ';
+  const iv=setInterval(()=>{ n--;
+    if(n>0){ resBig.textContent=String(n); try{sfxPickup();}catch(e){} }
+    else if(n===0){ resBig.textContent='GO!'; try{sfxPickup();}catch(e){} }
+    else { clearInterval(iv); hideResult(); raceLocked=false; raceStartT=performance.now(); for(const b of bots) b.speed=0; }
+  },800);
 }
 function updateLapHud(){ if(!flagHud) return;
   if(!raceActive){ if(!flagActive) flagHud.style.display='none'; return; }
   flagHud.style.display='flex'; flagHud.textContent='🏁 LAP '+Math.min(raceLaps+1,raceTotal)+' / '+raceTotal; }
 function finishRace(){ const secs=((performance.now()-raceStartT)/1000).toFixed(1);
-  raceActive=false; if(flagHud) flagHud.style.display='none';
+  raceActive=false; raceLocked=false; if(flagHud) flagHud.style.display='none';
   showResult('🏁 FINISH!','champ', raceTotal+' lap • '+secs+'s', true); }
 function checkLap(){
-  if(!raceActive||raceDone||!car) return;
+  if(!raceActive||raceDone||raceLocked||!car) return;
   const rx=car.position.x-finMid.x, rz=car.position.z-finMid.z;
   const rel=rx*finDir.x+rz*finDir.z, lat=rx*finPerp.x+rz*finPerp.z, dist=Math.hypot(rx,rz);
   if(dist>ARENA_RADIUS*0.9) raceArmed=true;                       // harus capai loop seberang (figure-8 penuh) baru sah
@@ -1843,7 +1867,8 @@ function endMatch(winnerId){
 function showResult(title,cls,sub,champ){
   resBig.textContent=title; resBig.className='big '+(cls||'');
   resSub.textContent=sub||''; resCd.textContent='';
-  resAgain.style.display='inline-block';   // selalu ada opsi Play again di tiap game-over
+  if(resStart) resStart.style.display='none';
+  resAgain.style.display='inline-block'; resHome.style.display='inline-block';   // selalu ada opsi Play again + Home
   resultEl.classList.add('show');
 }
 function hideResult(){ resultEl.classList.remove('show'); resCd.textContent=''; }
@@ -1886,12 +1911,18 @@ function botKO(b){
 }
 function updateBots(dt){
   if(!bots.length) return;
+  if(raceLocked) return;                       // beku pas countdown START
   for(const b of bots){
     if(b.eliminated||!b.group) continue;
-    // target: di track preset -> ikutin aspal (race); selain itu kejar pemain
+    // target: di track -> ikutin jalur figure-8 (waypoint); selain itu kejar pemain
     const byh=b.group.position.y-arenaCenter.y;
     let desired;
-    if(raceActive && arenaModel){
+    if(raceActive && racePath){
+      if(b.wp==null) b.wp=0;
+      pathWorld(racePath[b.wp],_wpv);
+      if(Math.hypot(_wpv.x-b.x,_wpv.z-b.z) < ARENA_RADIUS*0.17){ b.wp=(b.wp+1)%racePath.length; pathWorld(racePath[b.wp],_wpv); }
+      desired=Math.atan2(_wpv.x-b.x, _wpv.z-b.z);
+    } else if(raceActive && arenaModel){
       const la=0.30, hx=Math.sin(b.heading), hz=Math.cos(b.heading);
       if(floorHeightAt(b.x+hx*la,b.z+hz*la,byh).ok){ desired=b.heading; }   // depan aspal -> lurus
       else { const lh=b.heading+0.7, rh=b.heading-0.7;
@@ -2152,6 +2183,7 @@ function render(t,frame){
 
 function driveCar(dt){
   if(dead){ speed=0; spdT.textContent='0.0 m/s'; if(speedoT) speedoT.textContent='0'; return; }
+  if(raceLocked){ throttleInput=0; steerInput=0; speed=0; }   // beku pas countdown START
   // nitro boost
   const boosting = nitroSwipe && gasHeld && nitro>0;
   boost = boosting ? 1.9 : 1;
