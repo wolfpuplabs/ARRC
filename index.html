@@ -888,7 +888,7 @@ let arenaPresetUrl=null, arenaNoObstacles=false, selectedArena='none', arenaColl
 const ARENAS=[
   {id:'none', name:'Default', emoji:'⬜', sw:'linear-gradient(135deg,#3a3f4a,#1b1e25)'},
   {id:'pup',  name:'Pup',     emoji:'🐶', glb:'arena-pup.glb', shape:'square', r:1.8, noObs:true, collide:true, sw:'linear-gradient(135deg,#7bdc8b,#1f5b2a)'},
-  {id:'a2',   name:'Arena 2', emoji:'🏁', glb:'arena-2.glb',   shape:'square', r:3.0, noObs:true, collide:true, spawn:{x:0.08,z:0.28,yaw:0}, sw:'linear-gradient(135deg,#4aa3ff,#1b3a6b)'},
+  {id:'a2',   name:'Arena 2', emoji:'🏁', glb:'arena-2.glb',   shape:'square', r:3.0, noObs:true, collide:true, spawn:{x:0.08,z:0.28,yaw:-1.57}, sw:'linear-gradient(135deg,#4aa3ff,#1b3a6b)'},
   {id:'a3',   name:'Arena 3', emoji:'🏟️', glb:'arena-3.glb',   shape:'square', r:1.8, noObs:true, collide:true, sw:'linear-gradient(135deg,#ffd24a,#a05a10)'},
 ];
 const arenasel=$('arenasel');
@@ -2097,9 +2097,11 @@ function driveCar(dt){
     if(!eliminated && outsideArena(car.position.x,car.position.z,0.03)){ spawnBurst(car.position,0xffd24a,20,1.2); handleKO(); return; }
   } else { const c=clampArena(car.position.x,car.position.z,CAR_R); if(c.hit){ car.position.x=c.x; car.position.z=c.z; speed*=-0.35; } }
   // ---- vertical physics: ramp + jump (gravity) ----
-  if(arenaCollide && arenaModel){               // arena GLB: nempel ke permukaan track (anti-mendelep)
+  if(arenaCollide && arenaModel){               // arena GLB: nempel permukaan + curb jadi tembok
     const fy=floorHeightAt(car.position.x,car.position.z);
+    const STEP=0.025;                            // lip yg dianggap tembok (curb taman / pinggir track)
     if(airborne){ carY+=vy*dt; vy-=GRAV*dt; if(carY<=fy){ carY=fy; vy=0; airborne=false; } }
+    else if(Math.abs(speed)>0.004 && fy>carY+STEP){ car.position.x=px; car.position.z=pz; speed*=-0.25; } // nabrak curb -> mentok, ga bisa naik taman/keluar garis
     else { carY += (fy-carY)*Math.min(1,dt*16); onRamp=false; }
     car.position.y=arenaCenter.y+carY;
   } else {
