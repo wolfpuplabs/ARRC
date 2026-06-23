@@ -1666,30 +1666,37 @@ const flagHud=$('flaghud'), flagItems=[]; let flagCount=0, flagTotal=10, flagSta
 let raceActive=false, raceTotal=3, raceLaps=0, raceArmed=false, raceFinPrev=0, raceStartT=0, raceDone=false, finHalf=0.6, raceLocked=false, racePath=null;
 const finMid=new THREE.Vector3(), finDir=new THREE.Vector3(), finPerp=new THREE.Vector3(), _wpv=new THREE.Vector3();
 const RACE_PATH_A2=[[0.080,0.000],[0.354,0.172],[0.467,0.263],[0.506,0.403],[0.454,0.539],[0.333,0.619],[0.188,0.612],[0.075,0.521],[0.036,0.381],[0.080,0.000],[-0.368,-0.469],[-0.486,-0.555],[-0.530,-0.693],[-0.485,-0.831],[-0.367,-0.916],[-0.222,-0.915],[-0.104,-0.829],[-0.060,-0.691]];
-let pdia=null, pIdx=0;     // diamond pemain (cyan) + index
+let pdias=[], pIdx=0;     // semua diamond pemain (cyan) tampil = garis figure-8
 function makeRaceDiamond(hex){
   const g=new THREE.Group();
   const m=new THREE.Mesh(new THREE.OctahedronGeometry(0.05), new THREE.MeshStandardMaterial({color:hex,emissive:hex,emissiveIntensity:0.9,metalness:0.3,roughness:0.25}));
-  const ring=new THREE.Mesh(new THREE.TorusGeometry(0.075,0.008,8,24), new THREE.MeshBasicMaterial({color:hex,transparent:true,opacity:0.65}));
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(0.075,0.008,8,24), new THREE.MeshBasicMaterial({color:hex,transparent:true,opacity:0.6}));
   ring.rotation.x=Math.PI/2; g.add(m); g.add(ring); g.userData.spin=m; g.visible=false; scene.add(g); return g;
 }
-function placeDiamondAt(d,o){ if(!d) return; pathWorld(o,_wpv); const f=arenaModel?floorHeightAt(_wpv.x,_wpv.z,0):{h:0,ok:true};
-  d.position.set(_wpv.x, arenaCenter.y+(f.ok?f.h:0)+0.08, _wpv.z); d.visible=true; d.userData.pop=performance.now(); }
+function diaY(o){ pathWorld(o,_wpv); const f=arenaModel?floorHeightAt(_wpv.x,_wpv.z,0):{h:0,ok:true}; return arenaCenter.y+(f.ok?f.h:0)+0.08; }
+function placeDiamondAt(d,o){ if(!d) return; pathWorld(o,_wpv); d.position.set(_wpv.x, diaY(o), _wpv.z); d.visible=true; d.userData.pop=performance.now(); }
+function buildPlayerDiamonds(){
+  if(!racePath) return;
+  while(pdias.length<racePath.length) pdias.push(makeRaceDiamond(0x35ecff));
+  for(let i=0;i<racePath.length;i++){ placeDiamondAt(pdias[i], racePath[i]); pdias[i].userData.done=false; }
+  for(let i=racePath.length;i<pdias.length;i++) pdias[i].visible=false;
+}
 function animDiamond(d){ if(!d||!d.visible) return; if(d.userData.spin) d.userData.spin.rotation.y+=0.06;
-  const t=(performance.now()-(d.userData.pop||0))/260; d.scale.setScalar(t<1? (0.2+0.8*t) : (1+Math.sin(performance.now()*0.005)*0.09)); }
-function hideRaceDiamonds(){ if(pdia)pdia.visible=false; for(const b of bots) if(b.dia)b.dia.visible=false; }
+  const t=(performance.now()-(d.userData.pop||0))/260; const base=t<1?(0.2+0.8*t):1; d.scale.setScalar(base*(d.userData.cur?1.5:1)*(1+Math.sin(performance.now()*0.005)*0.08)); }
+function hideRaceDiamonds(){ for(const d of pdias) d.visible=false; for(const b of bots) if(b.dia)b.dia.visible=false; }
 function checkRaceDiamonds(){
-  if(!raceActive||raceDone||raceLocked||!racePath||!car||!pdia) return;
-  animDiamond(pdia);
-  const dx=car.position.x-pdia.position.x, dz=car.position.z-pdia.position.z, R=ARENA_RADIUS*0.13;
+  if(!raceActive||raceDone||raceLocked||!racePath||!car) return;
+  for(let i=0;i<racePath.length;i++){ const d=pdias[i]; if(!d)continue; d.userData.cur=(i===pIdx); animDiamond(d); }
+  const d=pdias[pIdx]; if(!d||!d.visible) return;
+  const dx=car.position.x-d.position.x, dz=car.position.z-d.position.z, R=ARENA_RADIUS*0.14;
   if(dx*dx+dz*dz < R*R){
-    try{spawnFlash(pdia.position.clone());}catch(e){} try{spawnBurst(pdia.position,0x35ecff,12,0.9);}catch(e){} try{sfxPickup();}catch(e){}
+    d.visible=false;
+    try{spawnFlash(d.position.clone());}catch(e){} try{spawnBurst(d.position,0x35ecff,12,0.9);}catch(e){} try{sfxPickup();}catch(e){}
     pIdx++;
     if(pIdx>=racePath.length){ pIdx=0; raceLaps++;
-      if(raceLaps>=raceTotal){ raceDone=true; pdia.visible=false; finishRace(); return; }
-      updateLapHud(); try{showToast('LAP '+(raceLaps+1)+' / '+raceTotal);}catch(e){}
+      if(raceLaps>=raceTotal){ raceDone=true; hideRaceDiamonds(); finishRace(); return; }
+      updateLapHud(); try{showToast('LAP '+(raceLaps+1)+' / '+raceTotal);}catch(e){} buildPlayerDiamonds();  // pasang lagi utk lap berikut
     }
-    placeDiamondAt(pdia, racePath[pIdx]);
   }
 }
 function pathWorld(o,out){ const ay=(calib&&calib.yaw)||0, sx=o[0]*ARENA_RADIUS, sz=o[1]*ARENA_RADIUS;
@@ -1711,9 +1718,8 @@ function setupRace(){
   }
   for(const b of bots){ b.wp=nearestWp(b.x,b.z); }
   if(racePath){
-    if(!pdia) pdia=makeRaceDiamond(0x35ecff);          // cyan = pemain
-    pIdx=nearestWp(car.position.x,car.position.z); placeDiamondAt(pdia, racePath[pIdx]);
-    for(const b of bots){ if(!b.dia) b.dia=makeRaceDiamond(0xff8a3d); placeDiamondAt(b.dia, racePath[b.wp]); }  // orange = bot
+    pIdx=nearestWp(car.position.x,car.position.z); buildPlayerDiamonds();        // semua cyan tampil = garis 8
+    for(const b of bots){ if(!b.dia) b.dia=makeRaceDiamond(0xff8a3d); placeDiamondAt(b.dia, racePath[b.wp]); }  // 1 orange per bot
   } else hideRaceDiamonds();
   raceLocked=true;                                       // kunci sampai countdown selesai
   updateLapHud(); showRaceStart();
