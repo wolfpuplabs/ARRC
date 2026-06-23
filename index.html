@@ -983,8 +983,9 @@ $('arenaglb').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) r
 $('arenaglbClear').addEventListener('click',()=>{ arenaGlbData=null; if(arenaModel){scene.remove(arenaModel);arenaModel=null;} reflectArena(); });
 function placeArenaModel(){
   if(arenaModel){ scene.remove(arenaModel); arenaModel=null; }
-  if(!arenaGlbData) return;
-  try{ new GLTFLoader().parse(arenaGlbData,'',gltf=>{
+  if(!arenaGlbData) return Promise.resolve();
+  return new Promise((resolve)=>{
+   try{ new GLTFLoader().parse(arenaGlbData,'',gltf=>{
     const m=gltf.scene;
     m.traverse(o=>{ if(o.isMesh&&o.material){ const ms=Array.isArray(o.material)?o.material:[o.material];
       for(const mm of ms){ if('metalness'in mm) mm.metalness=Math.min(mm.metalness,0.2); if('envMapIntensity'in mm) mm.envMapIntensity=1.0; mm.needsUpdate=true; }
@@ -993,8 +994,9 @@ function placeArenaModel(){
     const s=(ARENA_RADIUS*2)/Math.max(size.x,size.z,1e-3); m.scale.setScalar(s);
     box=new THREE.Box3().setFromObject(m); m.position.y-=box.min.y;
     const g=new THREE.Group(); g.add(m); g.position.copy(arenaCenter); if(calib) g.rotation.y=calib.yaw||0;
-    scene.add(g); arenaModel=g;
-  }, e=>{}); }catch(e){}
+    scene.add(g); arenaModel=g; resolve();
+   }, e=>{ resolve(); }); }catch(e){ resolve(); }
+  });
 }
 
 function connectServer(){
@@ -1388,7 +1390,7 @@ async function startDriving(){
   car.position.copy(arenaCenter); heading=0; speed=0; car.rotation.order='YXZ'; car.rotation.set(0,0,0); car.visible=true; carPlaced=true; carY=0;vy=0;airborne=false;onRamp=false;carPitch=0;
   if(arenaSpawn){ const ay=(calib&&calib.yaw)||0, sx=(arenaSpawn.x||0)*ARENA_RADIUS, sz=(arenaSpawn.z||0)*ARENA_RADIUS;
     car.position.x+=sx*Math.cos(ay)+sz*Math.sin(ay); car.position.z+=-sx*Math.sin(ay)+sz*Math.cos(ay); heading=(arenaSpawn.yaw||0)+ay; }   // spawn di garis start arena preset (ikut rotasi kalibrasi)
-  setupRace();   // auto mode balapan kalau di track preset
+  raceLocked = !!(arenaCollide && arenaPresetUrl);   // beku sampai countdown (kalau di track)
   if(shadowGround){ shadowGround.position.set(arenaCenter.x,arenaCenter.y+0.001,arenaCenter.z); shadowGround.visible=true; }
   if(keyLight){ keyLight.position.set(arenaCenter.x+0.6,arenaCenter.y+1.4,arenaCenter.z+0.5); keyLight.target.position.copy(arenaCenter); keyLight.target.updateMatrixWorld(); }
   ownHP=100; dead=false; eliminated=false; myScore=0; nitro=100; shieldUntil=0; updateHpBar(); updateNitroBar();
@@ -1396,14 +1398,24 @@ async function startDriving(){
   await loadObsModels();                                          // GLB tire/barrel/ramp (cached)
   if(arenaPresetUrl){ try{ const res=await fetch(arenaPresetUrl); if(!res.ok) throw 0; arenaGlbData=await res.arrayBuffer(); }
     catch(e){ arenaGlbData=null; arenaNoObstacles=false; arenaCollide=false; try{showToast('Arena slot masih kosong — pakai default');}catch(_){}} }   // preset arena GLB (slot kosong -> fallback)
-  buildArena(); placeArenaModel(); spawnObstacles(); spawnPowerups();
+  buildArena(); await placeArenaModel(); spawnObstacles(); spawnPowerups();
   if(!isMP && botCount>0) await spawnBots();           // bot lawan (solo)
+  resnapSpawn();                                       // taro ulang kart di start setelah model ada (anti-mendelep)
+  setupRace();                                         // overlay START muncul setelah arena & bot siap
   if(inMatch()){ if(!car.userData.label){ addUnderGlow(car,0xff6b3d); addLabel(car, myName); } resetMatch(); }
   bottomwrap.style.display='none'; drivebar.style.display='flex';
   dot.className='dot drive'; statusT.textContent= inMatch()?'Race':'Driving'; hint.classList.add('hide');
   if(isMP && !netTimer){ netTimer=setInterval(sendState,60); }
 }
 
+function resnapSpawn(){      // tempatkan ulang kart di garis start di atas permukaan model (anti-mendelep)
+  if(!car) return;
+  car.position.copy(arenaCenter); heading=0; carY=0;vy=0;airborne=false;onRamp=false;carPitch=0;
+  if(arenaSpawn){ const ay=(calib&&calib.yaw)||0, sx=(arenaSpawn.x||0)*ARENA_RADIUS, sz=(arenaSpawn.z||0)*ARENA_RADIUS;
+    car.position.x+=sx*Math.cos(ay)+sz*Math.sin(ay); car.position.z+=-sx*Math.sin(ay)+sz*Math.cos(ay); heading=(arenaSpawn.yaw||0)+ay; }
+  if(arenaCollide && arenaModel){ const f=floorHeightAt(car.position.x,car.position.z,0); carY=f.ok?f.h:0; }
+  car.position.y=arenaCenter.y+carY; car.rotation.order='YXZ'; car.rotation.set(carPitch,heading,0);
+}
 function repark(){
   carPlaced=false; speed=0; resetControls(); calA=null; if(isMP) resetMatch();
   if(shadowGround) shadowGround.visible=false;
@@ -1663,6 +1675,11 @@ function setupRace(){
   finDir.set(Math.sin(heading),0,Math.cos(heading));    // arah balap
   finPerp.set(Math.cos(heading),0,-Math.sin(heading));   // tegak lurus garis (lebar)
   finHalf=ARENA_RADIUS*0.30;
+  if(racePath){                                  // pastiin arah jalur searah balap pemain
+    let ni=0,bd=1e9; for(let i=0;i<racePath.length;i++){ pathWorld(racePath[i],_wpv); const dd=(_wpv.x-finMid.x)**2+(_wpv.z-finMid.z)**2; if(dd<bd){bd=dd;ni=i;} }
+    const n=racePath.length; pathWorld(racePath[ni],_wpv); const ax=_wpv.x,az=_wpv.z; pathWorld(racePath[(ni+1)%n],_wpv);
+    if((_wpv.x-ax)*finDir.x+(_wpv.z-az)*finDir.z < 0) racePath=racePath.slice().reverse();   // kebalik -> balik urutan
+  }
   for(const b of bots){ b.wp=nearestWp(b.x,b.z); }
   raceLocked=true;                                       // kunci sampai countdown selesai
   updateLapHud(); showRaceStart();
