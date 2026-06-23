@@ -816,7 +816,9 @@ const collectSeg=$('collectSeg');
   flagMissionOn = b.dataset.collect==='on';
   [...collectSeg.children].forEach(x=>x.classList.toggle('on',x===b));
 }));
-onTap(resAgain,()=>{ if(roundTimer){clearTimeout(roundTimer);roundTimer=null;} resetMatch(); resetRound(); });
+onTap(resAgain,()=>{ if(roundTimer){clearTimeout(roundTimer);roundTimer=null;}
+  if(arenaCollide && arenaPresetUrl){ resetMatch(); for(const b of bots){ b.hp=100; b.eliminated=false; b.speed=0; placeBot(b); if(b.group)b.group.visible=true; } ownHP=100; dead=false; eliminated=false; updateHpBar(); resnapSpawn(); setupRace(); }   // restart balapan di track
+  else { resetMatch(); resetRound(); } });
 onTap(resHome,()=>{ if(roundTimer){clearTimeout(roundTimer);roundTimer=null;} hideResult(); try{ if(xrSession) xrSession.end(); }catch(e){} location.reload(); });   // sama kayak Home di gameplay
 onTap(resStart,()=>{ startCountdown(); });   // mulai balapan + countdown
 botBtns.forEach(b=>b.addEventListener('click',()=>{
@@ -1400,12 +1402,12 @@ async function startDriving(){
     catch(e){ arenaGlbData=null; arenaNoObstacles=false; arenaCollide=false; try{showToast('Arena slot masih kosong — pakai default');}catch(_){}} }   // preset arena GLB (slot kosong -> fallback)
   buildArena(); await placeArenaModel(); spawnObstacles(); spawnPowerups();
   if(!isMP && botCount>0) await spawnBots();           // bot lawan (solo)
-  resnapSpawn();                                       // taro ulang kart di start setelah model ada (anti-mendelep)
-  setupRace();                                         // overlay START muncul setelah arena & bot siap
   if(inMatch()){ if(!car.userData.label){ addUnderGlow(car,0xff6b3d); addLabel(car, myName); } resetMatch(); }
   bottomwrap.style.display='none'; drivebar.style.display='flex';
   dot.className='dot drive'; statusT.textContent= inMatch()?'Race':'Driving'; hint.classList.add('hide');
   if(isMP && !netTimer){ netTimer=setInterval(sendState,60); }
+  resnapSpawn();                                       // taro ulang kart di start setelah model ada (anti-mendelep)
+  setupRace();                                         // overlay START muncul PALING AKHIR (biar ga ke-hide resetMatch)
 }
 
 function resnapSpawn(){      // tempatkan ulang kart di garis start di atas permukaan model (anti-mendelep)
