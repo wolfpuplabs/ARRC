@@ -1419,6 +1419,7 @@ function resnapSpawn(){      // tempatkan ulang kart di garis start di atas perm
   car.position.y=arenaCenter.y+carY; car.rotation.order='YXZ'; car.rotation.set(carPitch,heading,0);
 }
 function repark(){
+  hideRaceDiamonds(); raceActive=false; raceLocked=false;
   carPlaced=false; speed=0; resetControls(); calA=null; if(isMP) resetMatch();
   if(shadowGround) shadowGround.visible=false;
   if(isMP){ calib=null; placeBtn.textContent='Set point A'; }
@@ -1664,7 +1665,33 @@ const flagHud=$('flaghud'), flagItems=[]; let flagCount=0, flagTotal=10, flagSta
 /* ---------- balapan lap (auto di track preset) ---------- */
 let raceActive=false, raceTotal=3, raceLaps=0, raceArmed=false, raceFinPrev=0, raceStartT=0, raceDone=false, finHalf=0.6, raceLocked=false, racePath=null;
 const finMid=new THREE.Vector3(), finDir=new THREE.Vector3(), finPerp=new THREE.Vector3(), _wpv=new THREE.Vector3();
-const RACE_PATH_A2=[[0.080,0.000],[0.411,0.203],[0.506,0.403],[0.393,0.593],[0.172,0.605],[0.039,0.428],[0.080,0.000],[-0.426,-0.497],[-0.530,-0.693],[-0.425,-0.888],[-0.205,-0.909],[-0.065,-0.738]];
+const RACE_PATH_A2=[[0.080,0.000],[0.354,0.172],[0.467,0.263],[0.506,0.403],[0.454,0.539],[0.333,0.619],[0.188,0.612],[0.075,0.521],[0.036,0.381],[0.080,0.000],[-0.368,-0.469],[-0.486,-0.555],[-0.530,-0.693],[-0.485,-0.831],[-0.367,-0.916],[-0.222,-0.915],[-0.104,-0.829],[-0.060,-0.691]];
+let pdia=null, pIdx=0;     // diamond pemain (cyan) + index
+function makeRaceDiamond(hex){
+  const g=new THREE.Group();
+  const m=new THREE.Mesh(new THREE.OctahedronGeometry(0.05), new THREE.MeshStandardMaterial({color:hex,emissive:hex,emissiveIntensity:0.9,metalness:0.3,roughness:0.25}));
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(0.075,0.008,8,24), new THREE.MeshBasicMaterial({color:hex,transparent:true,opacity:0.65}));
+  ring.rotation.x=Math.PI/2; g.add(m); g.add(ring); g.userData.spin=m; g.visible=false; scene.add(g); return g;
+}
+function placeDiamondAt(d,o){ if(!d) return; pathWorld(o,_wpv); const f=arenaModel?floorHeightAt(_wpv.x,_wpv.z,0):{h:0,ok:true};
+  d.position.set(_wpv.x, arenaCenter.y+(f.ok?f.h:0)+0.08, _wpv.z); d.visible=true; d.userData.pop=performance.now(); }
+function animDiamond(d){ if(!d||!d.visible) return; if(d.userData.spin) d.userData.spin.rotation.y+=0.06;
+  const t=(performance.now()-(d.userData.pop||0))/260; d.scale.setScalar(t<1? (0.2+0.8*t) : (1+Math.sin(performance.now()*0.005)*0.09)); }
+function hideRaceDiamonds(){ if(pdia)pdia.visible=false; for(const b of bots) if(b.dia)b.dia.visible=false; }
+function checkRaceDiamonds(){
+  if(!raceActive||raceDone||raceLocked||!racePath||!car||!pdia) return;
+  animDiamond(pdia);
+  const dx=car.position.x-pdia.position.x, dz=car.position.z-pdia.position.z, R=ARENA_RADIUS*0.13;
+  if(dx*dx+dz*dz < R*R){
+    try{spawnFlash(pdia.position.clone());}catch(e){} try{spawnBurst(pdia.position,0x35ecff,12,0.9);}catch(e){} try{sfxPickup();}catch(e){}
+    pIdx++;
+    if(pIdx>=racePath.length){ pIdx=0; raceLaps++;
+      if(raceLaps>=raceTotal){ raceDone=true; pdia.visible=false; finishRace(); return; }
+      updateLapHud(); try{showToast('LAP '+(raceLaps+1)+' / '+raceTotal);}catch(e){}
+    }
+    placeDiamondAt(pdia, racePath[pIdx]);
+  }
+}
 function pathWorld(o,out){ const ay=(calib&&calib.yaw)||0, sx=o[0]*ARENA_RADIUS, sz=o[1]*ARENA_RADIUS;
   out.x=arenaCenter.x+sx*Math.cos(ay)+sz*Math.sin(ay); out.z=arenaCenter.z+(-sx*Math.sin(ay)+sz*Math.cos(ay)); }
 function nearestWp(x,z){ if(!racePath) return 0; let bi=0,bd=1e9; for(let i=0;i<racePath.length;i++){ pathWorld(racePath[i],_wpv); const d=(_wpv.x-x)**2+(_wpv.z-z)**2; if(d<bd){bd=d;bi=i;} } return (bi+1)%racePath.length; }
@@ -1683,6 +1710,11 @@ function setupRace(){
     if((_wpv.x-ax)*finDir.x+(_wpv.z-az)*finDir.z < 0) racePath=racePath.slice().reverse();   // kebalik -> balik urutan
   }
   for(const b of bots){ b.wp=nearestWp(b.x,b.z); }
+  if(racePath){
+    if(!pdia) pdia=makeRaceDiamond(0x35ecff);          // cyan = pemain
+    pIdx=nearestWp(car.position.x,car.position.z); placeDiamondAt(pdia, racePath[pIdx]);
+    for(const b of bots){ if(!b.dia) b.dia=makeRaceDiamond(0xff8a3d); placeDiamondAt(b.dia, racePath[b.wp]); }  // orange = bot
+  } else hideRaceDiamonds();
   raceLocked=true;                                       // kunci sampai countdown selesai
   updateLapHud(); showRaceStart();
 }
@@ -1705,7 +1737,7 @@ function updateLapHud(){ if(!flagHud) return;
   if(!raceActive){ if(!flagActive) flagHud.style.display='none'; return; }
   flagHud.style.display='flex'; flagHud.textContent='🏁 LAP '+Math.min(raceLaps+1,raceTotal)+' / '+raceTotal; }
 function finishRace(){ const secs=((performance.now()-raceStartT)/1000).toFixed(1);
-  raceActive=false; raceLocked=false; if(flagHud) flagHud.style.display='none';
+  raceActive=false; raceLocked=false; hideRaceDiamonds(); if(flagHud) flagHud.style.display='none';
   showResult('🏁 FINISH!','champ', raceTotal+' lap • '+secs+'s', true); }
 function checkLap(){
   if(!raceActive||raceDone||raceLocked||!car) return;
@@ -1938,8 +1970,9 @@ function updateBots(dt){
     let desired;
     if(raceActive && racePath){
       if(b.wp==null) b.wp=0;
+      if(b.dia) animDiamond(b.dia);
       pathWorld(racePath[b.wp],_wpv);
-      if(Math.hypot(_wpv.x-b.x,_wpv.z-b.z) < ARENA_RADIUS*0.17){ b.wp=(b.wp+1)%racePath.length; pathWorld(racePath[b.wp],_wpv); }
+      if(Math.hypot(_wpv.x-b.x,_wpv.z-b.z) < ARENA_RADIUS*0.17){ b.wp=(b.wp+1)%racePath.length; if(b.dia)placeDiamondAt(b.dia,racePath[b.wp]); pathWorld(racePath[b.wp],_wpv); }
       desired=Math.atan2(_wpv.x-b.x, _wpv.z-b.z);
     } else if(raceActive && arenaModel){
       const la=0.30, hx=Math.sin(b.heading), hz=Math.cos(b.heading);
@@ -1965,10 +1998,9 @@ function updateBots(dt){
     let botY=byh;
     if(gameMode==='freeroam'){ /* roam bebas */ }
     else if(inMatch() && gameMode==='sumo'){ if(outsideArena(b.x,b.z,0.03)){ botKO(b); continue; } }
-    else if(arenaCollide && arenaModel){                 // track GLB: nempel road, ga keluar
+    else if(arenaCollide && arenaModel){                 // track GLB: nempel road; ga di-revert biar tetep ngejar diamond
       const bf=floorHeightAt(b.x,b.z,byh);
-      if(!bf.ok){ b.x=bpx; b.z=bpz; b.heading+=1.2; b.speed*=0.35; }    // keluar road -> belok cari jalan
-      else botY=bf.h;
+      if(bf.ok) botY=bf.h; else b.speed*=0.85;
     }
     else { const c=clampArena(b.x,b.z,CAR_R); if(c.hit){ b.x=c.x; b.z=c.z; b.heading+=Math.PI*0.6; b.speed*=0.5; } }
     // obstacles (tong api meledak kalau bot nabrak kenceng)
@@ -2330,7 +2362,7 @@ function driveCar(dt){
   }
   // collideArenaMesh();  // diganti whitelist lantai (anti-macet di passage sempit)
   car.rotation.set(carPitch, heading, 0);
-  checkLap();
+  if(racePath) checkRaceDiamonds(); else checkLap();
   if(carShadow){ carShadow.visible=car.visible&&carPlaced;
     const groundY=arenaCenter.y+((arenaCollide&&arenaModel)?carY:0);
     carShadow.position.set(car.position.x,groundY+0.012,car.position.z);
