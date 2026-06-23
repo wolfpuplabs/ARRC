@@ -1,5 +1,5 @@
 /* KART CRASH service worker — offline support (solo). Bump CACHE to force update. */
-const CACHE = 'kartcrash-v32';
+const CACHE = 'kartcrash-v33';
 const CORE = [
   './', 'index.html', 'manifest.json',
   'icon-180.png', 'icon-192.png', 'icon-512.png',
