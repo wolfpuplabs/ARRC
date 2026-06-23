@@ -1401,7 +1401,7 @@ async function startDriving(){
   if(arenaPresetUrl){ try{ const res=await fetch(arenaPresetUrl); if(!res.ok) throw 0; arenaGlbData=await res.arrayBuffer(); }
     catch(e){ arenaGlbData=null; arenaNoObstacles=false; arenaCollide=false; try{showToast('Arena slot masih kosong — pakai default');}catch(_){}} }   // preset arena GLB (slot kosong -> fallback)
   buildArena(); await placeArenaModel(); spawnObstacles(); spawnPowerups();
-  if(!isMP && botCount>0) await spawnBots();           // bot lawan (solo)
+  if(!isMP && botCount>0 && !arenaCollide) await spawnBots();           // bot cuma di arena default (di track GLB = time-trial / MP)
   if(inMatch()){ if(!car.userData.label){ addUnderGlow(car,0xff6b3d); addLabel(car, myName); } resetMatch(); }
   bottomwrap.style.display='none'; drivebar.style.display='flex';
   dot.className='dot drive'; statusT.textContent= inMatch()?'Race':'Driving'; hint.classList.add('hide');
@@ -1665,7 +1665,7 @@ const flagHud=$('flaghud'), flagItems=[]; let flagCount=0, flagTotal=10, flagSta
 /* ---------- balapan lap (auto di track preset) ---------- */
 let raceActive=false, raceTotal=3, raceLaps=0, raceArmed=false, raceFinPrev=0, raceStartT=0, raceDone=false, finHalf=0.6, raceLocked=false, racePath=null;
 const finMid=new THREE.Vector3(), finDir=new THREE.Vector3(), finPerp=new THREE.Vector3(), _wpv=new THREE.Vector3();
-const RACE_PATH_A2=[[0.080,0.000],[0.354,0.172],[0.467,0.263],[0.506,0.403],[0.454,0.539],[0.333,0.619],[0.188,0.612],[0.075,0.521],[0.036,0.381],[0.080,0.000],[-0.368,-0.469],[-0.486,-0.555],[-0.530,-0.693],[-0.485,-0.831],[-0.367,-0.916],[-0.222,-0.915],[-0.104,-0.829],[-0.060,-0.691]];
+const RACE_PATH_A2=[[0.091,0.009],[0.381,0.196],[0.500,0.291],[0.540,0.437],[0.486,0.579],[0.359,0.663],[0.207,0.656],[0.089,0.561],[0.049,0.414],[0.091,0.009],[-0.399,-0.521],[-0.522,-0.610],[-0.569,-0.755],[-0.521,-0.899],[-0.398,-0.988],[-0.246,-0.988],[-0.124,-0.898],[-0.077,-0.754]];
 let pdias=[], pIdx=0, raceLine=null;     // semua diamond pemain (cyan) + garis balap
 function makeRaceDiamond(hex){
   const g=new THREE.Group();
