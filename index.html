@@ -1664,7 +1664,7 @@ const flagHud=$('flaghud'), flagItems=[]; let flagCount=0, flagTotal=10, flagSta
 /* ---------- balapan lap (auto di track preset) ---------- */
 let raceActive=false, raceTotal=3, raceLaps=0, raceArmed=false, raceFinPrev=0, raceStartT=0, raceDone=false, finHalf=0.6, raceLocked=false, racePath=null;
 const finMid=new THREE.Vector3(), finDir=new THREE.Vector3(), finPerp=new THREE.Vector3(), _wpv=new THREE.Vector3();
-const RACE_PATH_A2=[[0.282,0.122],[0.510,0.267],[0.499,0.537],[0.260,0.662],[0.032,0.517],[0.043,0.247],[-0.067,-0.547],[-0.056,-0.817],[-0.284,-0.962],[-0.523,-0.837],[-0.534,-0.567],[-0.306,-0.422]];
+const RACE_PATH_A2=[[0.080,0.000],[0.411,0.203],[0.506,0.403],[0.393,0.593],[0.172,0.605],[0.039,0.428],[0.080,0.000],[-0.426,-0.497],[-0.530,-0.693],[-0.425,-0.888],[-0.205,-0.909],[-0.065,-0.738]];
 function pathWorld(o,out){ const ay=(calib&&calib.yaw)||0, sx=o[0]*ARENA_RADIUS, sz=o[1]*ARENA_RADIUS;
   out.x=arenaCenter.x+sx*Math.cos(ay)+sz*Math.sin(ay); out.z=arenaCenter.z+(-sx*Math.sin(ay)+sz*Math.cos(ay)); }
 function nearestWp(x,z){ if(!racePath) return 0; let bi=0,bd=1e9; for(let i=0;i<racePath.length;i++){ pathWorld(racePath[i],_wpv); const d=(_wpv.x-x)**2+(_wpv.z-z)**2; if(d<bd){bd=d;bi=i;} } return (bi+1)%racePath.length; }
