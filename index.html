@@ -1749,13 +1749,19 @@ function checkLap(){
   if(!raceActive||raceDone||raceLocked||!car) return;
   const rx=car.position.x-finMid.x, rz=car.position.z-finMid.z;
   const rel=rx*finDir.x+rz*finDir.z, lat=rx*finPerp.x+rz*finPerp.z, dist=Math.hypot(rx,rz);
-  if(dist>ARENA_RADIUS*0.9) raceArmed=true;                       // harus capai loop seberang (figure-8 penuh) baru sah
+  if(dist>ARENA_RADIUS*0.8) raceArmed=true;                       // udah capai loop seberang (figure-8) baru sah
   if(raceArmed && raceFinPrev<0 && rel>=0 && Math.abs(lat)<finHalf){ // nyebrang garis finish maju
     raceArmed=false; raceLaps++;
     if(raceLaps>=raceTotal){ raceDone=true; finishRace(); }
-    else { updateLapHud(); try{showToast('LAP '+(raceLaps+1)+' / '+raceTotal);}catch(e){} try{sfxPickup();}catch(e){} }
+    else { updateLapHud(); try{showToast('LAP '+(raceLaps+1)+' / '+raceTotal);}catch(e){} try{sfxPickup();}catch(e){} if(racePath) buildPlayerDiamonds(); }
   }
   raceFinPrev=rel;
+}
+function updateDiamonds(){    // diamond cuma penanda garis-8 + boleh diambil (ga nahan lap)
+  if(!raceActive||raceLocked||!racePath) return;
+  for(const d of pdias){ if(!d||!d.visible) continue; d.userData.cur=false; animDiamond(d);
+    if(car){ const dx=car.position.x-d.position.x, dz=car.position.z-d.position.z, R=ARENA_RADIUS*0.14;
+      if(dx*dx+dz*dz<R*R){ d.visible=false; try{spawnBurst(d.position,0x35ecff,10,0.8);}catch(e){} try{sfxPickup();}catch(e){} } } }
 }
 function makeFlag(){
   const g=new THREE.Group();
@@ -2368,7 +2374,7 @@ function driveCar(dt){
   }
   // collideArenaMesh();  // diganti whitelist lantai (anti-macet di passage sempit)
   car.rotation.set(carPitch, heading, 0);
-  if(racePath) checkRaceDiamonds(); else checkLap();
+  if(raceActive){ checkLap(); if(racePath) updateDiamonds(); }
   if(carShadow){ carShadow.visible=car.visible&&carPlaced;
     const groundY=arenaCenter.y+((arenaCollide&&arenaModel)?carY:0);
     carShadow.position.set(car.position.x,groundY+0.012,car.position.z);
