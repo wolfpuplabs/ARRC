@@ -1431,7 +1431,10 @@ function resnapSpawn(){      // tempatkan ulang kart di garis start di atas perm
   car.position.copy(arenaCenter); heading=0; carY=0;vy=0;airborne=false;onRamp=false;carPitch=0;
   if(arenaSpawn){ const ay=(calib&&calib.yaw)||0, sx=(arenaSpawn.x||0)*ARENA_RADIUS, sz=(arenaSpawn.z||0)*ARENA_RADIUS;
     car.position.x+=sx*Math.cos(ay)+sz*Math.sin(ay); car.position.z+=-sx*Math.sin(ay)+sz*Math.cos(ay); heading=(arenaSpawn.yaw||0)+ay; }
-  if(arenaCollide && arenaModel){ const f=floorHeightAt(car.position.x,car.position.z,0); carY=f.ok?f.h:0; }
+  if(arenaCollide && arenaModel){ const f0=floorHeightAt(car.position.x,car.position.z,0);
+    if(f0.ok){ carY=f0.h; }                                  // spawn udah di jalan (mis. a2) -> biarkan
+    else { const sp=snapToDrivable(car.position.x,car.position.z);  // spawn nyangkut (mis. a3) -> geser ke jalan terdekat
+      if(sp){ car.position.x=sp.x; car.position.z=sp.z; carY=sp.h; if(sp.heading!=null) heading=sp.heading; } else carY=0; } }
   car.position.y=arenaCenter.y+carY; car.rotation.order='YXZ'; car.rotation.set(carPitch,heading,0);
 }
 function repark(){
@@ -1588,6 +1591,25 @@ function floorHeightAt(x,z,baseY){             // {h: tinggi (rel arenaCenter.y)
   if(hit.face){ _nrm.copy(hit.face.normal).transformDirection(hit.object.matrixWorld); flat=_nrm.y>0.6; } // miring = curb/tembok
   const driv=hit.object.userData.drivable!==false;
   return {h:hit.point.y-arenaCenter.y, ok: driv && flat};
+}
+function snapToDrivable(cx,cz){            // cari titik jalan terdekat dari pusat (buat arena tanpa spawn / spawn nyangkut)
+  if(!arenaModel) return {x:cx,z:cz,h:0,heading:null};
+  const heights=[0,0.12,0.25,0.4,0.6,0.85,1.1,1.4], stepR=ARENA_RADIUS/12;
+  let spot=null;
+  for(let ring=0; ring<=14 && !spot; ring++){
+    const rad=ring*stepR, n=ring===0?1:Math.max(8,ring*8);
+    for(let i=0;i<n && !spot;i++){
+      const a=(i/n)*Math.PI*2, x=cx+Math.cos(a)*rad, z=cz+Math.sin(a)*rad;
+      for(const by of heights){ const f=floorHeightAt(x,z,by); if(f.ok){ spot={x,z,h:f.h}; break; } }
+    }
+  }
+  if(!spot) return null;
+  let bestH=null, bestLen=-1;
+  for(let k=0;k<24;k++){ const hh=(k/24)*Math.PI*2; let len=0;
+    for(let d=1; d<=6; d++){ const x=spot.x+Math.sin(hh)*d*0.18, z=spot.z+Math.cos(hh)*d*0.18; if(floorHeightAt(x,z,spot.h).ok) len++; else break; }
+    if(len>bestLen){ bestLen=len; bestH=hh; } }
+  spot.heading = bestLen>0?bestH:null;
+  return spot;
 }
 let carShadow=null;
 function makeBlobShadow(){
