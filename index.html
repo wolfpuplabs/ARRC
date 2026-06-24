@@ -628,6 +628,7 @@
     <span class="spd" id="spd"></span>
     <button class="sysbtn pushright" id="mute" title="Sound">🔊</button>
     <button class="sysbtn" id="repark" title="Re-place car">↺</button>
+    <button class="sysbtn" id="recwp" title="Record waypoint">📍</button>
     <button class="sysbtn" id="homebtn" title="Back to home">🏠</button>
     <button class="sysbtn" id="exit" title="Exit AR">✕</button>
   </div>
@@ -1270,6 +1271,7 @@ function initThree(){
   placeBtn.addEventListener('click',onPrimary);
   onTap(reparkBtn,repark);
   onTap(muteBtn,toggleMute);
+  onTap($('recwp'),recordWp);
   setupControls();
   initParticles();
   addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
@@ -1710,6 +1712,17 @@ function checkRaceDiamonds(){
 }
 function pathWorld(o,out){ const ay=(calib&&calib.yaw)||0, sx=o[0]*ARENA_RADIUS, sz=o[1]*ARENA_RADIUS;
   out.x=arenaCenter.x+sx*Math.cos(ay)+sz*Math.sin(ay); out.z=arenaCenter.z+(-sx*Math.sin(ay)+sz*Math.cos(ay)); }
+const recWp=[];
+function recordWp(){
+  if(!carPlaced||!car){ try{showToast('Place dulu');}catch(e){} return; }
+  const ay=(calib&&calib.yaw)||0;
+  const dx=car.position.x-arenaCenter.x, dz=car.position.z-arenaCenter.z;
+  const sx = dx*Math.cos(ay) - dz*Math.sin(ay);
+  const sz = dx*Math.sin(ay) + dz*Math.cos(ay);
+  recWp.push([+(sx/ARENA_RADIUS).toFixed(3), +(sz/ARENA_RADIUS).toFixed(3)]);
+  console.log('FULL PATH:\n'+JSON.stringify(recWp));
+  try{ showToast('📍 WP '+recWp.length); }catch(e){}
+}
 function nearestWp(x,z){ if(!racePath) return 0; let bi=0,bd=1e9; for(let i=0;i<racePath.length;i++){ pathWorld(racePath[i],_wpv); const d=(_wpv.x-x)**2+(_wpv.z-z)**2; if(d<bd){bd=d;bi=i;} } return (bi+1)%racePath.length; }
 function setupRace(){
   raceActive = !!(arenaCollide && arenaPresetUrl);     // cuma di track GLB preset
