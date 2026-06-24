@@ -1414,7 +1414,7 @@ async function startDriving(){
   if(arenaPresetUrl){ try{ const res=await fetch(arenaPresetUrl); if(!res.ok) throw 0; arenaGlbData=await res.arrayBuffer(); }
     catch(e){ arenaGlbData=null; arenaNoObstacles=false; arenaCollide=false; try{showToast('Arena slot masih kosong — pakai default');}catch(_){}} }   // preset arena GLB (slot kosong -> fallback)
   buildArena(); await placeArenaModel(); spawnObstacles(); spawnPowerups();
-  if(!isMP && botCount>0 && !arenaCollide) await spawnBots();           // bot cuma di arena default (di track GLB = time-trial / MP)
+  if(!isMP && botCount>0) await spawnBots();           // bot solo: arena default + track GLB (di track ikut racePath)
   if(inMatch()){ if(!car.userData.label){ addUnderGlow(car,0xff6b3d); addLabel(car, myName); } resetMatch(); }
   bottomwrap.style.display='none'; drivebar.style.display='flex';
   dot.className='dot drive'; statusT.textContent= inMatch()?'Race':'Driving'; hint.classList.add('hide');
