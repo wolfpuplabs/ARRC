@@ -620,13 +620,15 @@
 </div>
 <div class="toast" id="toast"></div>
 <div id="wppanel" style="display:none;position:fixed;left:8px;right:8px;bottom:8px;z-index:99999;background:rgba(11,14,19,.94);border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:10px;color:#f3f5fa;font-family:ui-monospace,Menlo,monospace;font-size:11px;max-height:44vh;overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,.5)">
-  <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+  <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
     <strong id="wpcount" style="font-size:12px;color:#23e3ff">WP 0</strong>
     <span style="flex:1"></span>
     <button id="wpupdate" style="padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:#1f7a3d;color:#fff;font-size:12px;font-weight:700">Update</button>
     <button id="wpcopy"  style="padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:#1b3a6b;color:#fff;font-size:12px">Copy</button>
     <button id="wpundo"  style="padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;font-size:12px">Undo</button>
     <button id="wpclear" style="padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;font-size:12px">Clear</button>
+    <button id="wpreset" style="padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:#7a3320;color:#fff;font-size:12px">Reset</button>
+    <button id="wpline"  style="padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;font-size:12px">Line: on</button>
     <button id="wphide"  style="padding:6px 9px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;font-size:12px">×</button>
   </div>
   <textarea id="wptext" readonly style="width:100%;height:84px;box-sizing:border-box;background:#0b0e13;color:#23e3ff;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:6px;font-family:ui-monospace,Menlo,monospace;font-size:11px;resize:vertical" placeholder="[]"></textarea>
@@ -1680,7 +1682,7 @@ const flagHud=$('flaghud'), flagItems=[]; let flagCount=0, flagTotal=10, flagSta
 let raceActive=false, raceTotal=3, raceLaps=0, raceArmed=false, raceFinPrev=0, raceStartT=0, raceDone=false, finHalf=0.6, raceLocked=false, racePath=null, racePathSmooth=null;
 const finMid=new THREE.Vector3(), finDir=new THREE.Vector3(), finPerp=new THREE.Vector3(), _wpv=new THREE.Vector3();
 const RACE_PATH_A2=[[0.076,0.42],[-0.239,0.275],[-0.248,0.01],[-0.011,-0.141],[0.229,-0.231],[0.241,-0.527],[-0.192,-0.601],[-0.007,-0.124],[0.29,0.084],[0.236,0.258],[0.126,0.334],[-0.102,0.402]];
-let pdias=[], pIdx=0, raceLine=null;     // semua diamond pemain (cyan) + garis balap
+let pdias=[], pIdx=0, raceLine=null, lineHidden=false;     // semua diamond pemain (cyan) + garis balap
 function makeRaceDiamond(hex){
   const g=new THREE.Group();
   const m=new THREE.Mesh(new THREE.OctahedronGeometry(0.05), new THREE.MeshStandardMaterial({color:hex,emissive:hex,emissiveIntensity:0.9,metalness:0.3,roughness:0.25}));
@@ -1704,7 +1706,7 @@ function buildRaceLine(){            // pita glow nyambungin waypoint = bentuk 8
   const curve=new THREE.CatmullRomCurve3(pts, true);
   raceLine=new THREE.Mesh(new THREE.TubeGeometry(curve,160,0.02,6,true),
     new THREE.MeshBasicMaterial({color:0x35ecff, transparent:true, opacity:0.55}));
-  raceLine.renderOrder=1; scene.add(raceLine);
+  raceLine.renderOrder=1; raceLine.visible=!lineHidden; scene.add(raceLine);
 }
 function placeDiamondAt(d,o){ if(!d) return; pathWorld(o,_wpv); d.position.set(_wpv.x, diaY(o)+0.16, _wpv.z); d.visible=true; d.userData.pop=performance.now(); }
 function buildPlayerDiamonds(){
@@ -1784,6 +1786,26 @@ function applyWp(){
   try{ showToast('Path updated \u2713 '+path.length+' wp ('+selectedArena+')'); }catch(e){}
 }
 try{ if($('wpupdate')) onTap($('wpupdate'), applyWp); }catch(e){}
+function resetWp(){
+  delete userPaths[selectedArena];
+  try{ localStorage.removeItem('wp_'+selectedArena); }catch(e){}
+  racePath = (selectedArena==='a2') ? RACE_PATH_A2 : null;
+  racePathSmooth = racePath ? smoothPath(racePath,12) : null;
+  if(racePath){
+    try{ if(car) pIdx=nearestWp(car.position.x,car.position.z); }catch(e){}
+    try{ buildPlayerDiamonds(); buildRaceLine(); }catch(e){}
+    const bp=racePathSmooth||racePath;
+    for(const b of bots){ b.wp=nearestIdx(bp,b.x,b.z); if(!b.dia)b.dia=makeRaceDiamond(0xff8a3d); placeDiamondAt(b.dia,bp[b.wp]); }
+  } else { try{ hideRaceDiamonds(); }catch(e){} }
+  try{ showToast('Reset default ('+selectedArena+')'); }catch(e){}
+}
+function toggleLine(){
+  lineHidden=!lineHidden;
+  if(raceLine) raceLine.visible=!lineHidden;
+  const btn=$('wpline'); if(btn) btn.textContent = lineHidden?'Line: off':'Line: on';
+  try{ showToast(lineHidden?'Line hidden':'Line shown'); }catch(e){}
+}
+try{ if($('wpreset')) onTap($('wpreset'), resetWp); if($('wpline')) onTap($('wpline'), toggleLine); }catch(e){}
 function nearestWp(x,z){ if(!racePath) return 0; let bi=0,bd=1e9; for(let i=0;i<racePath.length;i++){ pathWorld(racePath[i],_wpv); const d=(_wpv.x-x)**2+(_wpv.z-z)**2; if(d<bd){bd=d;bi=i;} } return (bi+1)%racePath.length; }
 function setupRace(){
   raceActive = !!(arenaCollide && arenaPresetUrl);     // cuma di track GLB preset
