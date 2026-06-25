@@ -2148,14 +2148,15 @@ function updateBots(dt){
       desired=Math.atan2(tx-b.x, tz-b.z);
     }
     let ease=1;
-    if(raceActive && car && carPlaced && car.visible && !dead && !eliminated){   // kejar & nyalip, jangan nyodok
+    if(raceActive && car && carPlaced && car.visible && !dead && !eliminated && (performance.now()-raceStartT>1200)){   // nyalip aktif 1.2s setelah GO
       const dxp=car.position.x-b.x, dzp=car.position.z-b.z, distp=Math.hypot(dxp,dzp);
       const ahead=(dxp*Math.sin(b.heading)+dzp*Math.cos(b.heading))>0;
       if(distp<0.5 && ahead){
         const ang=Math.atan2(dxp,dzp); let rel=((ang-desired+Math.PI)%(Math.PI*2))-Math.PI; if(rel>Math.PI)rel-=Math.PI*2;
         const urg=(0.5-distp)/0.5;
-        desired += (rel>0?-1:1)*0.9*urg;                 // banting ke sisi kosong buat nyalip
-        if(Math.abs(rel)<0.35 && distp<0.26) ease=0.82;  // pas mepet di belakang -> tahan dikit
+        const sd=desired+(rel>0?-1:1)*0.9*urg;
+        const la=0.32, sideOk=(!arenaModel)||floorHeightAt(b.x+Math.sin(sd)*la,b.z+Math.cos(sd)*la,byh).ok;  // swerve cuma kalau sisi itu masih aspal
+        if(sideOk){ desired=sd; if(Math.abs(rel)<0.35 && distp<0.26) ease=0.82; }
       }
     }
     let dh=((desired-b.heading+Math.PI)%(Math.PI*2))-Math.PI; if(dh>Math.PI)dh-=Math.PI*2;
