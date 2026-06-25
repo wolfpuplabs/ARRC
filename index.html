@@ -1859,7 +1859,7 @@ function setupRace(){
     if((_wpv.x-ax)*finDir.x+(_wpv.z-az)*finDir.z < 0) racePath=racePath.slice().reverse();   // kebalik -> balik urutan
   }
   racePathSmooth = racePath ? smoothPath(racePath, 12) : null;
-  for(const b of bots){ b.wp=nearestIdx(racePathSmooth||racePath, b.x, b.z); }
+  for(const b of bots){ b.wp=nearestIdx(racePathSmooth||racePath, b.x, b.z); b.laps=0; b.armed=false; b.finPrev=-1; }
   if(racePath){
     pIdx=nearestWp(car.position.x,car.position.z); buildPlayerDiamonds(); buildRaceLine();   // garis-8 + diamond cyan
     const bp=racePathSmooth||racePath;
@@ -1886,9 +1886,11 @@ function startCountdown(){
 function updateLapHud(){ if(!flagHud) return;
   if(!raceActive){ if(!flagActive) flagHud.style.display='none'; return; }
   flagHud.style.display='flex'; flagHud.textContent='🏁 LAP '+Math.min(raceLaps+1,raceTotal)+' / '+raceTotal; }
-function finishRace(){ const secs=((performance.now()-raceStartT)/1000).toFixed(1);
+function finishRace(winner){ const secs=((performance.now()-raceStartT)/1000).toFixed(1);
   raceActive=false; raceLocked=false; hideRaceDiamonds(); if(flagHud) flagHud.style.display='none';
-  showResult('🏁 FINISH!','champ', raceTotal+' lap • '+secs+'s', true); }
+  if(!winner){ showResult('🏁 YOU WIN!','champ', raceTotal+' lap • '+secs+'s', true); }   // pemain finish duluan
+  else { showResult('🏁 '+(winner.name||'Bot')+' WINS','', raceTotal+' lap • '+secs+'s • kamu kalah', true); }  // bot finish duluan
+}
 function checkLap(){
   if(!raceActive||raceDone||raceLocked||!car) return;
   const rx=car.position.x-finMid.x, rz=car.position.z-finMid.z;
@@ -1900,6 +1902,17 @@ function checkLap(){
     else { updateLapHud(); try{showToast('LAP '+(raceLaps+1)+' / '+raceTotal);}catch(e){} try{sfxPickup();}catch(e){} if(racePath) buildPlayerDiamonds(); }
   }
   raceFinPrev=rel;
+}
+function checkBotLap(b){
+  if(!raceActive||raceDone||raceLocked) return;
+  const rx=b.x-finMid.x, rz=b.z-finMid.z;
+  const rel=rx*finDir.x+rz*finDir.z, lat=rx*finPerp.x+rz*finPerp.z, dist=Math.hypot(rx,rz);
+  if(dist>ARENA_RADIUS*0.8) b.armed=true;
+  if(b.armed && b.finPrev<0 && rel>=0 && Math.abs(lat)<finHalf){
+    b.armed=false; b.laps=(b.laps||0)+1;
+    if(b.laps>=raceTotal){ raceDone=true; finishRace(b); return; }
+  }
+  b.finPrev=rel;
 }
 function updateDiamonds(){    // diamond cuma penanda garis-8 + boleh diambil (ga nahan lap)
   if(!raceActive||raceLocked||!racePath) return;
@@ -2103,7 +2116,7 @@ async function spawnBots(){
   for(let i=0;i<botCount;i++){
     const color = i===0?0xc85cff:0xff7ad9;
     const g=await buildSharedCar(color); addUnderGlow(g,color); addLabel(g,'Bot '+(i+1),100); g.visible=true; scene.add(g);
-    const b={id:'bot'+(i+1),name:'Bot '+(i+1),group:g,wheels:g.userData.all||[],x:0,z:0,heading:0,speed:0,hp:100,score:0,eliminated:false,aggr:0.25+Math.random()*0.35,timer:null};
+    const b={id:'bot'+(i+1),name:'Bot '+(i+1),group:g,wheels:g.userData.all||[],x:0,z:0,heading:0,speed:0,hp:100,score:0,eliminated:false,aggr:0.25+Math.random()*0.35,timer:null,laps:0,armed:false,finPrev:-1};
     bots.push(b); placeBot(b);
   }
   renderBoardP2P();
@@ -2132,6 +2145,7 @@ function updateBots(dt){
       pathWorld(bp[b.wp],_wpv);
       while(Math.hypot(_wpv.x-b.x,_wpv.z-b.z) < cap && guard++<6){ b.wp=(b.wp+1)%bp.length; pathWorld(bp[b.wp],_wpv); }
       if(b.dia)placeDiamondAt(b.dia,bp[b.wp]);
+      const laIdx=racePathSmooth?(b.wp+3)%bp.length:b.wp; pathWorld(bp[laIdx],_wpv);
       desired=Math.atan2(_wpv.x-b.x, _wpv.z-b.z);
     } else if(raceActive && arenaModel){
       const la=0.30, hx=Math.sin(b.heading), hz=Math.cos(b.heading);
@@ -2148,7 +2162,8 @@ function updateBots(dt){
       desired=Math.atan2(tx-b.x, tz-b.z);
     }
     let ease=1;
-    if(raceActive && car && carPlaced && car.visible && !dead && !eliminated && (performance.now()-raceStartT>1200)){   // nyalip aktif 1.2s setelah GO
+    if(raceActive && (performance.now()-raceStartT < 700)){ desired=b.heading; ease=0.6; }   // launch: lurus & pelan dulu biar ga muter keluar
+    else if(raceActive && car && carPlaced && car.visible && !dead && !eliminated && (performance.now()-raceStartT>1200)){   // nyalip aktif 1.2s setelah GO
       const dxp=car.position.x-b.x, dzp=car.position.z-b.z, distp=Math.hypot(dxp,dzp);
       const ahead=(dxp*Math.sin(b.heading)+dzp*Math.cos(b.heading))>0;
       if(distp<0.5 && ahead){
@@ -2190,6 +2205,7 @@ function updateBots(dt){
         }
       }
     }
+    if(raceActive) checkBotLap(b);
     b.group.position.set(b.x,arenaCenter.y+botY,b.z); b.group.rotation.y=b.heading;
     if(b.wheels.length){ const sp=(b.speed*dt)/WHEEL_R; for(const w of b.wheels) w.rotation.x+=sp; }
   }
