@@ -628,7 +628,7 @@
     <button id="wpundo"  style="padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;font-size:12px">Undo</button>
     <button id="wpclear" style="padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;font-size:12px">Clear</button>
     <button id="wpreset" style="padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:#7a3320;color:#fff;font-size:12px">Reset</button>
-    <button id="wpline"  style="padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;font-size:12px">Line: on</button>
+    <button id="wpline"  style="padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;font-size:12px">Line: off</button>
     <button id="wphide"  style="padding:6px 9px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#fff;font-size:12px">×</button>
   </div>
   <textarea id="wptext" readonly style="width:100%;height:84px;box-sizing:border-box;background:#0b0e13;color:#23e3ff;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:6px;font-family:ui-monospace,Menlo,monospace;font-size:11px;resize:vertical" placeholder="[]"></textarea>
@@ -1704,7 +1704,7 @@ const flagHud=$('flaghud'), flagItems=[]; let flagCount=0, flagTotal=10, flagSta
 let raceActive=false, raceTotal=3, raceLaps=0, raceArmed=false, raceFinPrev=0, raceStartT=0, raceDone=false, finHalf=0.6, raceLocked=false, racePath=null, racePathSmooth=null;
 const finMid=new THREE.Vector3(), finDir=new THREE.Vector3(), finPerp=new THREE.Vector3(), _wpv=new THREE.Vector3();
 const RACE_PATH_A2=[[0.076,0.42],[-0.239,0.275],[-0.248,0.01],[-0.011,-0.141],[0.229,-0.231],[0.241,-0.527],[-0.192,-0.601],[-0.007,-0.124],[0.29,0.084],[0.236,0.258],[0.126,0.334],[-0.102,0.402]];
-let pdias=[], pIdx=0, raceLine=null, lineHidden=false;     // semua diamond pemain (cyan) + garis balap
+let pdias=[], pIdx=0, raceLine=null, lineHidden=true;      // garis balap default disembunyikan (toggle tombol Line)
 function makeRaceDiamond(hex){
   const g=new THREE.Group();
   const m=new THREE.Mesh(new THREE.OctahedronGeometry(0.05), new THREE.MeshStandardMaterial({color:hex,emissive:hex,emissiveIntensity:0.9,metalness:0.3,roughness:0.25}));
@@ -1823,12 +1823,26 @@ function resetWp(){
 }
 function toggleLine(){
   lineHidden=!lineHidden;
+  try{ localStorage.setItem('wp_linehidden', lineHidden?'1':'0'); }catch(e){}
   if(raceLine) raceLine.visible=!lineHidden;
   const btn=$('wpline'); if(btn) btn.textContent = lineHidden?'Line: off':'Line: on';
   try{ showToast(lineHidden?'Line hidden':'Line shown'); }catch(e){}
 }
 try{ if($('wpreset')) onTap($('wpreset'), resetWp); if($('wpline')) onTap($('wpline'), toggleLine); }catch(e){}
+try{ const lv=localStorage.getItem('wp_linehidden'); if(lv!==null) lineHidden=(lv==='1'); const lb=$('wpline'); if(lb) lb.textContent=lineHidden?'Line: off':'Line: on'; if(raceLine) raceLine.visible=!lineHidden; }catch(e){}
 function nearestWp(x,z){ if(!racePath) return 0; let bi=0,bd=1e9; for(let i=0;i<racePath.length;i++){ pathWorld(racePath[i],_wpv); const d=(_wpv.x-x)**2+(_wpv.z-z)**2; if(d<bd){bd=d;bi=i;} } return (bi+1)%racePath.length; }
+function formupBots(){            // bot berbaris rapi di belakang player, hadap arah sama
+  if(!car || !bots.length) return;
+  const h=heading, fx=Math.sin(h), fz=Math.cos(h), rx=Math.cos(h), rz=-Math.sin(h);
+  for(let i=0;i<bots.length;i++){ const b=bots[i];
+    const col=(i%2===0)?1:-1, row=Math.floor(i/2);
+    const side=col*ARENA_RADIUS*0.05, back=(row+1)*ARENA_RADIUS*0.08;
+    let x=car.position.x + rx*side - fx*back, z=car.position.z + rz*side - fz*back, hy=carY;
+    if(arenaModel){ const f=floorHeightAt(x,z,carY); if(f.ok){ hy=f.h; } else { const sp=snapToDrivable(x,z); if(sp){ x=sp.x; z=sp.z; hy=sp.h; } } }
+    b.x=x; b.z=z; b.heading=h; b.speed=0;
+    if(b.group){ b.group.position.set(x, arenaCenter.y+hy, z); b.group.rotation.y=h; }
+  }
+}
 function setupRace(){
   raceActive = !!(arenaCollide && arenaPresetUrl);     // cuma di track GLB preset
   racePath = raceActive ? (getUserPath(selectedArena) || (selectedArena==='a2'?RACE_PATH_A2:null)) : null;
@@ -1838,6 +1852,7 @@ function setupRace(){
   finDir.set(Math.sin(heading),0,Math.cos(heading));    // arah balap
   finPerp.set(Math.cos(heading),0,-Math.sin(heading));   // tegak lurus garis (lebar)
   finHalf=ARENA_RADIUS*0.30;
+  formupBots();
   if(racePath){                                  // pastiin arah jalur searah balap pemain
     let ni=0,bd=1e9; for(let i=0;i<racePath.length;i++){ pathWorld(racePath[i],_wpv); const dd=(_wpv.x-finMid.x)**2+(_wpv.z-finMid.z)**2; if(dd<bd){bd=dd;ni=i;} }
     const n=racePath.length; pathWorld(racePath[ni],_wpv); const ax=_wpv.x,az=_wpv.z; pathWorld(racePath[(ni+1)%n],_wpv);
@@ -2132,9 +2147,20 @@ function updateBots(dt){
       if(gameMode==='sumo' && Math.hypot(ex,ez)>ARENA_RADIUS*0.78){ tx=arenaCenter.x; tz=arenaCenter.z; }
       desired=Math.atan2(tx-b.x, tz-b.z);
     }
+    let ease=1;
+    if(raceActive && car && carPlaced && car.visible && !dead && !eliminated){   // kejar & nyalip, jangan nyodok
+      const dxp=car.position.x-b.x, dzp=car.position.z-b.z, distp=Math.hypot(dxp,dzp);
+      const ahead=(dxp*Math.sin(b.heading)+dzp*Math.cos(b.heading))>0;
+      if(distp<0.5 && ahead){
+        const ang=Math.atan2(dxp,dzp); let rel=((ang-desired+Math.PI)%(Math.PI*2))-Math.PI; if(rel>Math.PI)rel-=Math.PI*2;
+        const urg=(0.5-distp)/0.5;
+        desired += (rel>0?-1:1)*0.9*urg;                 // banting ke sisi kosong buat nyalip
+        if(Math.abs(rel)<0.35 && distp<0.26) ease=0.82;  // pas mepet di belakang -> tahan dikit
+      }
+    }
     let dh=((desired-b.heading+Math.PI)%(Math.PI*2))-Math.PI; if(dh>Math.PI)dh-=Math.PI*2;
     b.heading += Math.max(-BOT_TURN*dt, Math.min(BOT_TURN*dt, dh));
-    const want=BOT_MAXSPD*(0.7+0.3*b.aggr);
+    const want=(raceActive? MAX_SPEED*(0.9+0.12*b.aggr) : BOT_MAXSPD*(0.7+0.3*b.aggr))*ease;
     b.speed += (want-b.speed)*2.0*dt;
     const bpx=b.x, bpz=b.z;
     b.x += Math.sin(b.heading)*b.speed*dt; b.z += Math.cos(b.heading)*b.speed*dt;
